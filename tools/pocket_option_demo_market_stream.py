@@ -80,6 +80,24 @@ async def main() -> None:
             if message == "2":
                 await ws.send("3")
                 continue
+            if message.startswith("451-"):
+                try:
+                    packet = json.loads(message.split("-", 1)[1])
+                    event = str(packet[0]) if packet else ""
+                    if event in {"updateStream", "updateHistoryNewFast", "updateCharts"}:
+                        binary = await asyncio.wait_for(ws.recv(), timeout=10)
+                        if isinstance(binary, bytes):
+                            print(f"Realtime market event: {event}")
+                            if event == "updateStream":
+                                print("Realtime tick data: OK")
+                            elif event == "updateHistoryNewFast":
+                                print("Realtime history data: OK")
+                            else:
+                                print("Chart event: OK")
+                            return
+                except (json.JSONDecodeError, asyncio.TimeoutError):
+                    continue
+
             if not message.startswith("42"):
                 continue
             try:
