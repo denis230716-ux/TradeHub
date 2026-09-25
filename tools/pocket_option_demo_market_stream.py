@@ -42,9 +42,17 @@ async def main() -> None:
         await ws.send(ssid)
 
         authenticated = False
-        assets_seen = 0
+        assets_seen = False
+        idle_after_auth = 0
         for _ in range(40):
-            message = await asyncio.wait_for(ws.recv(), timeout=10)
+            try:
+                message = await asyncio.wait_for(ws.recv(), timeout=5)
+            except asyncio.TimeoutError:
+                if authenticated:
+                    idle_after_auth += 1
+                    if idle_after_auth >= 3:
+                        break
+                continue
             if isinstance(message, bytes):
                 continue
             if message == "2":
