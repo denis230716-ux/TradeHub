@@ -52,7 +52,11 @@ async def main() -> None:
         if not authenticated:
             raise RuntimeError("Demo authentication confirmation was not received")
 
-        print("Listening for Demo market events; no trading commands are sent.")
+        asset = os.environ.get("POCKET_OPTION_ASSET", "EURJPY_otc")
+        period = int(os.environ.get("POCKET_OPTION_PERIOD", "5"))
+        await ws.send(json.dumps(["subscribeSymbol", {"asset": asset, "period": period}], separators=(",", ":")).join(["42", ""]))
+        print(f"Subscribed to Demo market stream: {asset}, period={period}s")
+        print("No trading commands are sent.")
         for _ in range(30):
             message = await asyncio.wait_for(ws.recv(), timeout=10)
             if isinstance(message, bytes):
