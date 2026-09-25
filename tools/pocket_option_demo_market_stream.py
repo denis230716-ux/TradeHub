@@ -4,8 +4,15 @@ import os
 
 import websockets
 
-WS_URL = os.environ.get("POCKET_OPTION_WS_URL", "wss://demo-api-eu.po.market/socket.io/?EIO=4&transport=websocket")
+WS_URL = os.environ.get(
+    "POCKET_OPTION_WS_URL",
+    "wss://demo-api-eu.po.market/socket.io/?EIO=4&transport=websocket",
+)
 ORIGIN = os.environ.get("POCKET_OPTION_ORIGIN", "https://pocketoption.com")
+
+
+def socket_event(name: str, *args: object) -> str:
+    return "42" + json.dumps([name, *args], separators=(",", ":"))
 
 
 async def main() -> None:
@@ -35,7 +42,8 @@ async def main() -> None:
         await ws.send(ssid)
 
         authenticated = False
-        for _ in range(30):
+        assets_seen = 0
+        for _ in range(40):
             message = await asyncio.wait_for(ws.recv(), timeout=10)
             if isinstance(message, bytes):
                 continue
@@ -47,6 +55,9 @@ async def main() -> None:
             if "successauth" in message:
                 authenticated = True
                 print("Demo authentication: OK")
+            if message.startswith("42") and "updateAssets" in message:
+                assets_seen = 1
+            if authenticated and assets_seen:
                 break
 
         if not authenticated:
@@ -54,10 +65,15 @@ async def main() -> None:
 
         asset = os.environ.get("POCKET_OPTION_ASSET", "EURJPY_otc")
         period = int(os.environ.get("POCKET_OPTION_PERIOD", "5"))
-        await ws.send(json.dumps(["subscribeSymbol", {"asset": asset, "period": period}], separators=(",", ":")).join(["42", ""]))
+
+        # Verified community protocol uses changeSymbol + subfor.
+        await ws.send(socket_event("changeSymbol", {"asset": asset, "period": period}))
+        await ws.send(socket_event("subfor", asset))
+
         print(f"Subscribed to Demo market stream: {asset}, period={period}s")
         print("No trading commands are sent.")
-        for _ in range(30):
+
+        for _ in range(60):
             message = await asyncio.wait_for(ws.recv(), timeout=10)
             if isinstance(message, bytes):
                 continue
@@ -72,17 +88,20 @@ async def main() -> None:
                 continue
             if not isinstance(payload, list) or not payload:
                 continue
+
             event = str(payload[0])
             if event == "updateAssets":
                 print("Market event: updateAssets")
-            elif event == "updateCharts":
-                print("Market event: updateCharts")
-                print("Realtime chart data: OK")
+            elif event == "updateStream":
+                print("Realtime tick data: OK")
                 return
-            elif event == "updateBalance":
-                print("Demo balance event: OK")
+            elif event == "updateHistoryNewFast":
+                print("Realtime history data: OK")
+                return
+            elif event == "updateCharts":
+                print("Chart event: OK")
 
-        raise RuntimeError("Authenticated, but no realtime chart event was received")
+        raise RuntimeError("Authenticated, but no realtime market event was received")
 
 
 if __name__ == "__main__":
