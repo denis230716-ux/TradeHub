@@ -16,7 +16,7 @@ def test_indicators():
 
 
 def test_market_analysis():
-    candles = [{"close": value, "volume": 100} for value in range(1, 25)]
+    candles = [{"close": 100 * (1.001 ** i), "volume": 100} for i in range(24)]
     result = MarketAnalysis().analyze(candles)
     assert result.trading_allowed is True
     assert result.state == "UPTREND"
@@ -29,7 +29,7 @@ def test_scalping_guard():
 
 
 def test_signal_generator():
-    generator = SignalGenerator()
+    generator = SignalGenerator({"min_buy_score": 20, "min_buy_difference": 10})
     result = generator.generate_signal(
         "TEST",
         {"trend": 0.5, "momentum": 0.5, "rsi": 50},
