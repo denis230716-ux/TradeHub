@@ -87,3 +87,25 @@ def test_decode_pocket_option_stream_batch():
 
 def test_decode_invalid_stream_payload():
     assert PocketOptionMarketData.decode_stream_update({"unexpected": True}) == []
+
+
+def test_decode_pocket_option_history_update():
+    payload = {
+        "asset": "EURJPY_otc",
+        "period": 5,
+        "history": [
+            [1790425318.715, 181.095],
+            [1790425319.245, 181.097],
+        ],
+        "candles": [{"opaque": "kept"}],
+    }
+    snapshots = PocketOptionMarketData.decode_history_update(payload)
+    assert len(snapshots) == 2
+    assert snapshots[0].asset == "EURJPY_otc"
+    assert snapshots[0].price == 181.095
+    assert snapshots[0].features["period"] == 5
+    assert snapshots[0].features["candles"] == [{"opaque": "kept"}]
+
+
+def test_decode_invalid_pocket_option_history_update():
+    assert PocketOptionMarketData.decode_history_update({"asset": "EURJPY_otc"}) == []
