@@ -2,21 +2,19 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Awaitable, Callable
 from typing import Any
 
-import socketio
+import websockets
 
-
-DEFAULT_URL = "https://demo-api-eu.po.market"
+DEFAULT_URL = "wss://demo-api-eu.po.market/socket.io/?EIO=4&transport=websocket"
 DEFAULT_ORIGIN = "https://pocketoption.com"
 
 
 class PocketOptionSocketIO:
-    """Pocket Option Socket.IO market-data transport.
+    """Raw Socket.IO-over-WebSocket market-data transport.
 
-    This adapter intentionally implements market-data only. It does not emit
-    order/deal commands, keeping Demo discovery fail-closed.
+    This adapter implements Demo connection and market-data subscription only.
+    It deliberately does not send order/deal commands.
     """
 
     def __init__(
@@ -29,73 +27,15 @@ class PocketOptionSocketIO:
         self.auth_frame = auth_frame.strip()
         self.url = url
         self.origin = origin
-        self.sio = socketio.AsyncClient(
-            reconnection=False,
-            logger=False,
-            engineio_logger=False,
-        )
+        self.ws: Any = None
         self.authenticated = asyncio.Event()
         self.disconnected = asyncio.Event()
         self.events: list[str] = []
         self.assets: list[dict[str, Any]] = []
         self.stream_updates: list[Any] = []
         self.history_updates: list[Any] = []
-        self._register_handlers()
-
-    def _register_handlers(self) -> None:
-        @self.sio.event
-        async def disconnect() -> None:
-            self.disconnected.set()
-
-        @self.sio.on("successauth")
-        async def successauth(data: Any = None) -> None:
-            self._record("successauth")
-            self.authenticated.set()
-
-        @self.sio.on("updateAssets")
-        async def update_assets(*args: Any) -> None:
-            self._record("updateAssets")
-            data: Any = args[0] if len(args) == 1 else list(args)
-            if isinstance(data, tuple):
-                data = list(data)
-            if isinstance(data, list) and len(data) == 1 and isinstance(data[0], list):
-                data = data[0]
-            if not isinstance(data, list):
-                return
-
-            for row in data:
-                if isinstance(row, dict):
-                    self.assets.append(row)
-                elif isinstance(row, list) and len(row) >= 2:
-                    symbol = row[1]
-                    if isinstance(symbol, str) and symbol.strip():
-                        self.assets.append(
-                            {
-                                "id": row[0],
-                                "symbol": symbol,
-                                "name": row[2] if len(row) > 2 else symbol,
-                                "category": row[3] if len(row) > 3 else "unknown",
-                                "payout": row[5] if len(row) > 5 else 0,
-                                "is_available": row[14] if len(row) > 14 else False,
-                                "timeframes": row[15] if len(row) > 15 else [],
-                                "raw": row,
-                            }
-                        )
-
-        @self.sio.on("updateStream")
-        async def update_stream(data: Any = None) -> None:
-            self._record("updateStream")
-            self.stream_updates.append(data)
-
-        @self.sio.on("updateHistoryNewFast")
-        async def update_history(data: Any = None) -> None:
-            self._record("updateHistoryNewFast")
-            self.history_updates.append(data)
-
-        @self.sio.on("*")
-        async def any_event(event: str, data: Any = None) -> None:
-            if event not in self.events:
-                self.events.append(event)
+        self.chart_updates: list[Any] = []
+        self._reader_task: asyncio.Task[None] | None = None
 
     def _record(self, event: str) -> None:
         if event not in self.events:
@@ -113,19 +53,107 @@ class PocketOptionSocketIO:
             raise ValueError("POCKET_OPTION_SSID must be a Demo auth frame")
         return data
 
+    def _decode_assets(self, data: Any) -> None:
+        rows = data
+        if isinstance(rows, dict):
+            rows = [rows]
+        if not isinstance(rows, list):
+            return
+        if len(rows) == 1 and isinstance(rows[0], list):
+            rows = rows[0]
+
+        for row in rows:
+            if isinstance(row, dict):
+                self.assets.append(row)
+                continue
+            if not isinstance(row, list) or len(row) < 2:
+                continue
+            symbol = row[1]
+            if not isinstance(symbol, str) or not symbol.strip():
+                continue
+            self.assets.append(
+                {
+                    "id": row[0],
+                    "symbol": symbol,
+                    "name": row[2] if len(row) > 2 else symbol,
+                    "category": row[3] if len(row) > 3 else "unknown",
+                    "payout": row[5] if len(row) > 5 else 0,
+                    "is_available": row[14] if len(row) > 14 else False,
+                    "timeframes": row[15] if len(row) > 15 else [],
+                    "raw": row,
+                }
+            )
+
+    def _decode(self, message: str) -> None:
+        if not isinstance(message, str):
+            return
+        if message == "2":
+            if self.ws is not None:
+                asyncio.create_task(self.ws.send("3"))
+            return
+        if not message.startswith("42"):
+            return
+
+        try:
+            packet = json.loads(message[2:])
+        except json.JSONDecodeError:
+            return
+        if not isinstance(packet, list) or not packet:
+            return
+
+        event = packet[0]
+        data = packet[1] if len(packet) > 1 else None
+        if not isinstance(event, str):
+            return
+
+        self._record(event)
+        if event == "successauth":
+            self.authenticated.set()
+        elif event == "updateAssets":
+            self._decode_assets(data)
+        elif event == "updateStream":
+            self.stream_updates.append(data)
+        elif event == "updateHistoryNewFast":
+            self.history_updates.append(data)
+        elif event == "updateCharts":
+            self.chart_updates.append(data)
+
+    async def _reader(self) -> None:
+        try:
+            async for message in self.ws:
+                self._decode(message)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.disconnected.set()
+        finally:
+            self.disconnected.set()
+
     async def connect(self) -> None:
         auth = self._authorization(self.auth_frame)
-        headers = {"Origin": self.origin}
-        await self.sio.connect(
+        self.ws = await websockets.connect(
             self.url,
-            headers=headers,
-            transports=["websocket"],
-            socketio_path="socket.io",
-            wait=True,
-            wait_timeout=15,
-            auth=None,
+            additional_headers={"Origin": self.origin},
+            ping_interval=20,
+            ping_timeout=20,
+            open_timeout=15,
+            close_timeout=5,
         )
-        await self.sio.emit("auth", auth)
+
+        first = await asyncio.wait_for(self.ws.recv(), timeout=10)
+        if isinstance(first, bytes) or not str(first).startswith("0"):
+            raise RuntimeError("unexpected Engine.IO handshake")
+
+        await self.ws.send("40")
+        connected = await asyncio.wait_for(self.ws.recv(), timeout=10)
+        if isinstance(connected, bytes) or not str(connected).startswith("40"):
+            raise RuntimeError("Socket.IO connection was not established")
+
+        await self.ws.send(
+            "42" + json.dumps(["auth", auth], separators=(",", ":"))
+        )
+
+        self._reader_task = asyncio.create_task(self._reader())
         await asyncio.wait_for(self.authenticated.wait(), timeout=15)
 
     async def wait_for_assets(self, timeout: float = 20) -> list[dict[str, Any]]:
@@ -136,17 +164,34 @@ class PocketOptionSocketIO:
             remaining = deadline - asyncio.get_running_loop().time()
             if remaining <= 0:
                 break
-            await asyncio.sleep(min(0.5, remaining))
+            await asyncio.sleep(min(0.25, remaining))
         return list(self.assets)
 
     async def subscribe(self, asset: str, period: int = 60) -> None:
-        await self.sio.emit("changeSymbol", {"asset": asset, "period": period})
-        await self.sio.emit("subscribeSymbol", asset)
-        await self.sio.emit("subfor", asset)
+        if self.ws is None:
+            raise RuntimeError("Pocket Option WebSocket is not connected")
+        await self.ws.send(
+            "42"
+            + json.dumps(
+                ["changeSymbol", {"asset": asset, "period": period}],
+                separators=(",", ":"),
+            )
+        )
+        await self.ws.send(
+            "42" + json.dumps(["subscribeSymbol", asset], separators=(",", ":"))
+        )
+        await self.ws.send(
+            "42" + json.dumps(["subfor", asset], separators=(",", ":"))
+        )
 
     async def close(self) -> None:
-        if self.sio.connected:
-            await self.sio.disconnect()
+        if self._reader_task is not None:
+            self._reader_task.cancel()
+            await asyncio.gather(self._reader_task, return_exceptions=True)
+            self._reader_task = None
+        if self.ws is not None:
+            await self.ws.close()
+            self.ws = None
+        self.disconnected.set()
 
 
-AssetCallback = Callable[[list[dict[str, Any]]], Awaitable[None]]
