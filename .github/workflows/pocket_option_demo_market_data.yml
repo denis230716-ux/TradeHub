@@ -19,7 +19,7 @@ jobs:
           python-version: "3.11"
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Read Demo market stream
+      - name: Discover Demo market universe
         env:
           POCKET_OPTION_SSID: ${{ secrets.POCKET_OPTION_SSID }}
-        run: python -m tools.pocket_option_demo_market_stream
+        run: python -m tools.pocket_option_demo_universe
