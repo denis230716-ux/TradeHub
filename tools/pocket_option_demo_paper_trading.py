@@ -4,6 +4,7 @@ import asyncio
 import os
 
 from app.core.paper_trader import DemoPaperTrader
+from app.execution.executor import PocketOptionDemoExecutor
 from app.market.market_data import PocketOptionMarketData
 
 
@@ -14,18 +15,38 @@ async def main() -> None:
 
     asset = os.environ.get("POCKET_OPTION_ASSET", "EURJPY_otc")
     period = int(os.environ.get("POCKET_OPTION_PERIOD", "5"))
-    timeout = float(os.environ.get("POCKET_OPTION_PAPER_TIMEOUT", "30"))
+    timeout = float(
+        os.environ.get("POCKET_OPTION_PAPER_TIMEOUT", "30")
+    )
+    amount = float(
+        os.environ.get("POCKET_OPTION_AMOUNT", "100")
+    )
 
     market = PocketOptionMarketData(session=ssid)
-    trader = DemoPaperTrader(amount=1.0, expiration_seconds=period)
+
+    if market.client is None:
+        raise RuntimeError("Pocket Option transport is not initialized")
+
+    executor = PocketOptionDemoExecutor(market.client)
+
+    trader = DemoPaperTrader(
+        executor=executor,
+        amount=amount,
+        expiration_seconds=period,
+    )
 
     try:
         await market.connect()
         await market.subscribe(asset, period=period)
-        print(f"Demo paper trading: {asset}; period={period}s")
-        print("Real orders are disabled.")
+
+        print(
+            f"Pocket Option Demo trading: "
+            f"{asset}; period={period}s; amount={amount}"
+        )
+        print("LIVE trading is blocked. Demo session only.")
 
         snapshots = 0
+
         async for snapshot in market.stream(timeout=timeout):
             trader.ingest(snapshot)
             snapshots += 1
@@ -35,10 +56,13 @@ async def main() -> None:
 
             signal = trader.evaluate()
             diagnostics = trader.pipeline.last_diagnostics
+
             if signal is None:
                 print(
-                    f"DATA snapshots={snapshots} asset={snapshot.asset} "
-                    f"price={snapshot.price} signal=HOLD "
+                    f"DATA snapshots={snapshots} "
+                    f"asset={snapshot.asset} "
+                    f"price={snapshot.price} "
+                    f"signal=HOLD "
                     f"state={diagnostics.get('market_state', 'n/a')} "
                     f"trend={float(diagnostics.get('trend', 0.0)):.4f} "
                     f"momentum={float(diagnostics.get('momentum', 0.0)):.4f} "
@@ -50,18 +74,33 @@ async def main() -> None:
                 )
                 continue
 
-            result = await trader.open_virtual_trade(signal, snapshot.price)
             print(
-                f"DATA snapshots={snapshots} asset={snapshot.asset} "
-                f"price={snapshot.price} signal={signal.direction} "
+                f"SIGNAL asset={signal.asset} "
+                f"direction={signal.direction} "
                 f"confidence={signal.confidence:.1f} "
-                f"accepted={result.accepted} trade_id={result.trade_id}"
+                f"price={snapshot.price}"
+            )
+
+            result = await trader.open_virtual_trade(
+                signal,
+                snapshot.price,
+            )
+
+            print(
+                f"ORDER accepted={result.accepted} "
+                f"trade_id={result.trade_id} "
+                f"reason={result.reason}"
             )
 
         if snapshots == 0:
-            raise RuntimeError("No Demo market snapshots were received")
+            raise RuntimeError(
+                "No Demo market snapshots were received"
+            )
 
-        print(f"Paper trading completed: snapshots={snapshots}")
+        print(
+            f"Demo trading completed: snapshots={snapshots}"
+        )
+
     finally:
         await market.close()
 
