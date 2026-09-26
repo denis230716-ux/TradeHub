@@ -32,7 +32,7 @@ class DemoPaperTrader:
         self,
         pipeline: TradeHubPipeline | None = None,
         executor: DryRunExecutor | None = None,
-        amount: float = 1.0,
+        amount: float = 100.0,
         expiration_seconds: int = 5,
         history_size: int = 120,
     ):
