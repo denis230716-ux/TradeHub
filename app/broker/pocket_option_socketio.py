@@ -36,6 +36,7 @@ class PocketOptionSocketIO:
         self.history_updates: list[Any] = []
         self.chart_updates: list[Any] = []
         self._reader_task: asyncio.Task[None] | None = None
+        self.order_events: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
 
     def _record(self, event: str) -> None:
         if event not in self.events:
@@ -117,6 +118,8 @@ class PocketOptionSocketIO:
             self.history_updates.append(data)
         elif event == "updateCharts":
             self.chart_updates.append(data)
+        elif event in {"successopenOrder", "failopenOrder"}:
+            self.order_events.put_nowait((event, data))
 
     async def _handle_binary_event(self, header: str) -> None:
         """Decode Socket.IO binary event header and its following payload."""
@@ -148,6 +151,8 @@ class PocketOptionSocketIO:
                 self.history_updates.append(data)
             elif event == "updateCharts":
                 self.chart_updates.append(data)
+            elif event in {"successopenOrder", "failopenOrder"}:
+                self.order_events.put_nowait((event, data))
         except (asyncio.TimeoutError, json.JSONDecodeError, IndexError):
             return
 
@@ -217,6 +222,46 @@ class PocketOptionSocketIO:
         await self.ws.send(
             "42" + json.dumps(["subfor", asset], separators=(",", ":"))
         )
+
+    async def open_order(
+        self,
+        *,
+        asset: str,
+        amount: float,
+        direction: str,
+        expiration_seconds: int,
+        timeout: float = 10.0,
+    ) -> dict[str, Any]:
+        if self.ws is None:
+            raise RuntimeError("Pocket Option WebSocket is not connected")
+        auth = self._authorization(self.auth_frame)
+        if auth.get("isDemo") != 1:
+            raise RuntimeError("Live order blocked: auth session is not Demo")
+        action = direction.lower()
+        if action not in {"call", "put"}:
+            raise ValueError("direction must be CALL or PUT")
+        request_id = f"tradehub-{int(asyncio.get_running_loop().time() * 1_000_000)}"
+        payload = {
+            "asset": asset,
+            "amount": amount,
+            "action": action,
+            "isDemo": 1,
+            "requestId": request_id,
+            "optionType": 100,
+            "time": expiration_seconds,
+        }
+        await self.ws.send(
+            "42" + json.dumps(["openOrder", payload], separators=(",", ":"))
+        )
+        while True:
+            event, data = await asyncio.wait_for(
+                self.order_events.get(), timeout=timeout
+            )
+            if event == "failopenOrder":
+                raise RuntimeError(f"Pocket Option rejected order: {data}")
+            if isinstance(data, dict):
+                return data
+            raise RuntimeError(f"Invalid Pocket Option order response: {data!r}")
 
     async def close(self) -> None:
         if self._reader_task is not None:
