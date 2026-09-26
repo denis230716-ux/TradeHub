@@ -29,12 +29,8 @@ def decode_binary_payload(message):
     if not isinstance(message, bytes):
         return None
     try:
-        text = message.decode("utf-8")
-    except UnicodeDecodeError:
-        return None
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
+        return json.loads(message.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
         return None
 
 
@@ -68,7 +64,7 @@ async def main():
 
         authenticated = False
         pending_binary_event = None
-        asset_event_seen = False
+        events = []
 
         for _ in range(80):
             try:
@@ -79,49 +75,59 @@ async def main():
                 raise
 
             if isinstance(message, bytes):
-                if pending_binary_event == "updateAssets":
+                if pending_binary_event:
                     payload = decode_binary_payload(message)
-                    if payload is not None:
+                    if payload is not None and pending_binary_event == "updateAssets":
                         universe.update(payload)
-                        asset_event_seen = bool(universe.assets)
                     pending_binary_event = None
                 continue
 
             if message == "2":
                 await ws.send("3")
                 continue
+
             if message.startswith("41"):
-                raise RuntimeError("Pocket Option rejected Demo authentication")
+                if not authenticated:
+                    raise RuntimeError("Pocket Option rejected Demo authentication")
+                events.append("namespace_close_after_auth")
+                continue
 
             if "successauth" in message:
                 authenticated = True
                 print("Demo authentication: OK")
 
-            if message.startswith('451-'):
+            if message.startswith("451-"):
                 try:
                     header = json.loads(message.split("-", 1)[1])
                     event = str(header[0]) if header else ""
+                    if event not in events:
+                        events.append(event)
                     if event == "updateAssets":
                         pending_binary_event = event
                 except json.JSONDecodeError:
-                    pending_binary_event = None
+                    pass
                 continue
 
             decoded = decode_event(message)
-            if decoded and decoded[0] == "updateAssets":
-                asset_event_seen = True
-                for payload in decoded[1]:
-                    universe.update(payload)
+            if decoded:
+                event = decoded[0]
+                if event not in events:
+                    events.append(event)
+                if event == "updateAssets":
+                    for payload in decoded[1]:
+                        universe.update(payload)
 
-            if asset_event_seen and universe.assets:
+            if universe.assets:
                 break
 
         if not authenticated:
             raise RuntimeError("Demo authentication confirmation was not received")
+
         if not universe.assets:
+            observed = ", ".join(events[:20]) or "none"
             raise RuntimeError(
-                "Authenticated, but the Pocket Option asset catalog was not decoded. "
-                "The server sent no directly parseable updateAssets payload."
+                "Demo authentication succeeded, but no asset catalog was decoded. "
+                f"Observed events: {observed}"
             )
 
         print(f"Market universe discovery: OK ({len(universe.assets)} assets)")
