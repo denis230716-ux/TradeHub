@@ -25,7 +25,7 @@ class PocketOptionSocketIO:
         self,
         auth_frame: str,
         *,
-        url: str = DEFAULT_WS_URL,
+        url: str = DEFAULT_URL,
         origin: str = DEFAULT_ORIGIN,
     ) -> None:
         self.auth_frame = auth_frame.strip()
