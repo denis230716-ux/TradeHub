@@ -9,6 +9,22 @@ WS_URL = os.environ.get(
     "wss://demo-api-eu.po.market/socket.io/?EIO=4&transport=websocket",
 )
 ORIGIN = os.environ.get("POCKET_OPTION_ORIGIN", "https://pocketoption.com")
+TARGET_EVENTS = {"updateStream", "updateHistoryNewFast", "updateCharts"}
+
+
+def describe(event: str, data: object) -> None:
+    print(f"EVENT={event}")
+    print(f"DATA_TYPE={type(data).__name__}")
+    if isinstance(data, list):
+        print(f"DATA_LEN={len(data)}")
+        if data:
+            print(f"FIRST_TYPE={type(data[0]).__name__}")
+            print(f"FIRST_VALUE={json.dumps(data[0], ensure_ascii=False)[:2000]}")
+    elif isinstance(data, dict):
+        print(f"DATA_KEYS={sorted(map(str, data.keys()))[:50]}")
+        print(f"DATA_SAMPLE={json.dumps(data, ensure_ascii=False)[:2000]}")
+    else:
+        print(f"DATA_SAMPLE={str(data)[:2000]}")
 
 
 async def main() -> None:
@@ -66,13 +82,18 @@ async def main() -> None:
             ["changeSymbol", {"asset": asset, "period": period}],
             separators=(",", ":"),
         ))
-        await ws.send("42" + json.dumps(["subscribeSymbol", asset], separators=(",", ":")))
-        await ws.send("42" + json.dumps(["subfor", asset], separators=(",", ":")))
+        await ws.send(
+            "42" + json.dumps(["subscribeSymbol", asset], separators=(",", ":"))
+        )
+        await ws.send(
+            "42" + json.dumps(["subfor", asset], separators=(",", ":"))
+        )
 
         print(f"Subscribed: {asset}; period={period}s")
         print("Inspecting payload structure only; no trading commands are sent.")
 
-        for _ in range(80):
+        seen = set()
+        for _ in range(120):
             message = await asyncio.wait_for(ws.recv(), timeout=10)
             if isinstance(message, bytes):
                 continue
@@ -80,14 +101,16 @@ async def main() -> None:
                 await ws.send("3")
                 continue
 
+            event = None
+            data = None
+
             if message.startswith("451-"):
                 packet = json.loads(message.split("-", 1)[1])
                 if not packet:
                     continue
                 event = str(packet[0])
-                if event not in {"updateStream", "updateHistoryNewFast", "updateCharts"}:
+                if event not in TARGET_EVENTS:
                     continue
-
                 payload = await asyncio.wait_for(ws.recv(), timeout=10)
                 if isinstance(payload, bytes):
                     try:
@@ -100,21 +123,7 @@ async def main() -> None:
                     except json.JSONDecodeError:
                         data = str(payload)
 
-                print(f"EVENT={event}")
-                print(f"DATA_TYPE={type(data).__name__}")
-                if isinstance(data, list):
-                    print(f"DATA_LEN={len(data)}")
-                    if data:
-                        print(f"FIRST_TYPE={type(data[0]).__name__}")
-                        print(f"FIRST_VALUE={json.dumps(data[0], ensure_ascii=False)[:2000]}")
-                elif isinstance(data, dict):
-                    print(f"DATA_KEYS={sorted(map(str, data.keys()))[:50]}")
-                    print(f"DATA_SAMPLE={json.dumps(data, ensure_ascii=False)[:2000]}")
-                else:
-                    print(f"DATA_SAMPLE={str(data)[:2000]}")
-                return
-
-            if message.startswith("42"):
+            elif message.startswith("42"):
                 try:
                     packet = json.loads(message[2:])
                 except json.JSONDecodeError:
@@ -122,24 +131,24 @@ async def main() -> None:
                 if not isinstance(packet, list) or not packet:
                     continue
                 event = str(packet[0])
-                if event not in {"updateStream", "updateHistoryNewFast", "updateCharts"}:
+                if event not in TARGET_EVENTS:
                     continue
                 data = packet[1] if len(packet) > 1 else None
-                print(f"EVENT={event}")
-                print(f"DATA_TYPE={type(data).__name__}")
-                if isinstance(data, list):
-                    print(f"DATA_LEN={len(data)}")
-                    if data:
-                        print(f"FIRST_TYPE={type(data[0]).__name__}")
-                        print(f"FIRST_VALUE={json.dumps(data[0], ensure_ascii=False)[:2000]}")
-                elif isinstance(data, dict):
-                    print(f"DATA_KEYS={sorted(map(str, data.keys()))[:50]}")
-                    print(f"DATA_SAMPLE={json.dumps(data, ensure_ascii=False)[:2000]}")
-                else:
-                    print(f"DATA_SAMPLE={str(data)[:2000]}")
+
+            if event is None or event in seen:
+                continue
+
+            seen.add(event)
+            describe(event, data)
+
+            # updateCharts is configuration metadata. Keep listening so that
+            # the actual stream/history payload can be observed as well.
+            if event in {"updateStream", "updateHistoryNewFast"}:
                 return
 
-        raise RuntimeError("Authenticated, but no inspectable realtime market event was received.")
+        raise RuntimeError(
+            "Authenticated, but no stream/history market payload was received."
+        )
 
 
 if __name__ == "__main__":
