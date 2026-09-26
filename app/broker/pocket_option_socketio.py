@@ -8,7 +8,7 @@ from typing import Any
 import socketio
 
 
-DEFAULT_WS_URL = (
+DEFAULT_URL = (
     "wss://demo-api-eu.po.market/socket.io/?EIO=4&transport=websocket"
 )
 DEFAULT_ORIGIN = "https://pocketoption.com"
