@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 from app.core.models import MarketSnapshot, Signal
 from app.ml.predictor import MarketPredictor
 from app.risk.manager import RiskManager
 from app.signals.generator import SignalGenerator
-from app.strategy.indicators import calculate_momentum, calculate_rsi, calculate_sma
+from app.strategy.indicators import calculate_momentum, calculate_rsi
 from app.strategy.market_analysis import MarketAnalysis
 from app.strategy.scalping_guard import ScalpingGuard
 
@@ -14,8 +15,8 @@ from app.strategy.scalping_guard import ScalpingGuard
 class TradeHubPipeline:
     """Deterministic dry-run decision pipeline.
 
-    Broker I/O is deliberately outside this class. That keeps strategy tests
-    independent from Pocket Option connectivity.
+    Strategy calculations use verified OHLCV candles when available.
+    Broker I/O is deliberately outside this class.
     """
 
     def __init__(
@@ -36,17 +37,35 @@ class TradeHubPipeline:
         )
         self.last_diagnostics: dict[str, float | str | bool] = {}
 
-    def evaluate(self, asset: str, prices: list[float], volumes: list[float] | None = None) -> Signal | None:
-        if len(prices) < 21:
-            return None
+    def evaluate(
+        self,
+        asset: str,
+        prices: list[float],
+        volumes: list[float] | None = None,
+        candles: list[dict[str, Any]] | None = None,
+    ) -> Signal | None:
+        if candles is None:
+            if len(prices) < 21:
+                return None
 
-        volumes = volumes or [0.0] * len(prices)
-        candles = [
-            {"close": price, "volume": volume}
-            for price, volume in zip(prices, volumes)
-        ]
+            volumes = volumes or [0.0] * len(prices)
+            candles = [
+                {"close": price, "volume": volume}
+                for price, volume in zip(prices, volumes)
+            ]
+        else:
+            if len(candles) < 21:
+                return None
+            prices = [float(candle["close"]) for candle in candles]
+            volumes = [float(candle.get("volume", 0.0)) for candle in candles]
+
         market = self.market_analysis.analyze(candles)
         if not market.trading_allowed:
+            self.last_diagnostics = {
+                "market_state": market.state,
+                "market_volatility": market.volatility_percent,
+                "trading_allowed": market.trading_allowed,
+            }
             return None
 
         prediction = self.predictor.predict(asset, prices)
@@ -85,10 +104,9 @@ class TradeHubPipeline:
         if not guard.allowed:
             return None
 
-        direction = generated.signal
         signal = Signal(
             asset=asset,
-            direction=direction,
+            direction=generated.signal,
             confidence=generated.confidence,
             timestamp=datetime.now(timezone.utc),
             reason="; ".join(generated.reasons),
