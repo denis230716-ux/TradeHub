@@ -34,6 +34,7 @@ class TradeHubPipeline:
             max_daily_loss=0,
             max_consecutive_losses=3,
         )
+        self.last_diagnostics: dict[str, float | str | bool] = {}
 
     def evaluate(self, asset: str, prices: list[float], volumes: list[float] | None = None) -> Signal | None:
         if len(prices) < 21:
@@ -65,6 +66,16 @@ class TradeHubPipeline:
             "prediction_confidence": prediction.confidence,
         }
         generated = self.signal_generator.generate_signal(asset, analysis)
+        self.last_diagnostics = {
+            **analysis,
+            "market_state": market.state,
+            "market_volatility": market.volatility_percent,
+            "trading_allowed": market.trading_allowed,
+            "buy_score": generated.buy_score,
+            "sell_score": generated.sell_score,
+            "signal": generated.signal,
+            "signal_confidence": generated.confidence,
+        }
 
         if generated.signal == "HOLD":
             return None
