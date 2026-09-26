@@ -53,8 +53,13 @@ class PocketOptionSocketIO:
             self.authenticated.set()
 
         @self.sio.on("updateAssets")
-        async def update_assets(data: Any = None) -> None:
+        async def update_assets(*args: Any) -> None:
             self._record("updateAssets")
+            data: Any = args[0] if len(args) == 1 else list(args)
+            if isinstance(data, tuple):
+                data = list(data)
+            if isinstance(data, list) and len(data) == 1 and isinstance(data[0], list):
+                data = data[0]
             if not isinstance(data, list):
                 return
 
