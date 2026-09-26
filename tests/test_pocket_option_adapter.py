@@ -60,3 +60,30 @@ async def test_live_mode_does_not_invent_order_protocol():
                 expiration_seconds=5,
             )
         )
+
+
+from app.market.market_data import PocketOptionMarketData
+
+
+def test_decode_pocket_option_stream_tick():
+    snapshots = PocketOptionMarketData.decode_stream_update(
+        ["EURJPY_otc", 1758883200, 123.456]
+    )
+    assert len(snapshots) == 1
+    assert snapshots[0].asset == "EURJPY_otc"
+    assert snapshots[0].price == 123.456
+    assert snapshots[0].timestamp.tzinfo is not None
+
+
+def test_decode_pocket_option_stream_batch():
+    snapshots = PocketOptionMarketData.decode_stream_update(
+        [
+            ["EURUSD", 1758883200, 1.2345],
+            ["GBPUSD", 1758883201, 1.3456],
+        ]
+    )
+    assert [item.asset for item in snapshots] == ["EURUSD", "GBPUSD"]
+
+
+def test_decode_invalid_stream_payload():
+    assert PocketOptionMarketData.decode_stream_update({"unexpected": True}) == []
