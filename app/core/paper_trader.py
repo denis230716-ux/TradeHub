@@ -6,7 +6,7 @@ from datetime import datetime
 
 from app.core.models import MarketSnapshot, Signal, TradeResult, TradeRequest
 from app.core.pipeline import TradeHubPipeline
-from app.execution.executor import DryRunExecutor
+from app.execution.executor import DryRunExecutor, TradeExecutor
 
 
 @dataclass(slots=True)
@@ -22,16 +22,16 @@ class VirtualTrade:
 
 
 class DemoPaperTrader:
-    """Paper-trading layer for Pocket Option Demo market data.
+    """Trading layer for Pocket Option Demo market data.
 
-    It never sends an order to Pocket Option. It ranks currently valid signals
-    and opens at most one virtual position per decision cycle.
+    With DryRunExecutor it stays virtual. With PocketOptionDemoExecutor it
+    preserves the real Demo order response from Pocket Option.
     """
 
     def __init__(
         self,
         pipeline: TradeHubPipeline | None = None,
-        executor: DryRunExecutor | None = None,
+        executor: TradeExecutor | None = None,
         amount: float = 100.0,
         expiration_seconds: int = 5,
         history_size: int = 120,
@@ -58,8 +58,7 @@ class DemoPaperTrader:
             return None
         return max(candidates, key=lambda signal: signal.confidence)
 
-    async def open_virtual_trade(self, signal: Signal, price: float) -> TradeResult:
-        self.sequence += 1
+    async def open_trade(self, signal: Signal, price: float) -> TradeResult:
         request = TradeRequest(
             asset=signal.asset,
             direction=signal.direction,
@@ -67,9 +66,20 @@ class DemoPaperTrader:
             expiration_seconds=self.expiration_seconds,
         )
         result = await self.executor.execute(request)
-        if result.accepted:
+
+        if result.accepted and isinstance(self.executor, DryRunExecutor):
+            self.sequence += 1
             result.trade_id = f"DRY-{self.sequence:06d}"
             result.reason = (
                 f"simulation; entry={price}; confidence={signal.confidence:.1f}"
             )
+
         return result
+
+    async def open_virtual_trade(
+        self,
+        signal: Signal,
+        price: float,
+    ) -> TradeResult:
+        """Backward-compatible alias for the existing Demo runner."""
+        return await self.open_trade(signal, price)
