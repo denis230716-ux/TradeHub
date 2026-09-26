@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from app.core.models import MarketSnapshot, Signal, TradeResult, TradeRequest
 from app.core.pipeline import TradeHubPipeline
@@ -22,11 +23,7 @@ class VirtualTrade:
 
 
 class DemoPaperTrader:
-    """Trading layer for Pocket Option Demo market data.
-
-    With DryRunExecutor it stays virtual. With PocketOptionDemoExecutor it
-    preserves the real Demo order response from Pocket Option.
-    """
+    """Trading layer for Pocket Option Demo market data."""
 
     def __init__(
         self,
@@ -43,20 +40,52 @@ class DemoPaperTrader:
         self.history: dict[str, deque[float]] = defaultdict(
             lambda: deque(maxlen=history_size)
         )
+        self.candle_history: dict[str, deque[dict[str, float]]] = defaultdict(
+            lambda: deque(maxlen=history_size)
+        )
         self.sequence = 0
 
     def ingest(self, snapshot: MarketSnapshot) -> None:
         self.history[snapshot.asset].append(snapshot.price)
 
+        candle = snapshot.features.get("candle")
+        if isinstance(candle, dict):
+            required = ("open", "high", "low", "close", "volume")
+            if all(key in candle for key in required):
+                try:
+                    normalized = {
+                        key: float(candle[key])
+                        for key in required
+                    }
+                except (TypeError, ValueError):
+                    normalized = None
+
+                if normalized is not None:
+                    self.candle_history[snapshot.asset].append(normalized)
+
     def evaluate(self) -> Signal | None:
         candidates: list[Signal] = []
-        for asset, prices in self.history.items():
-            signal = self.pipeline.evaluate(asset, list(prices))
+
+        for asset, candles in self.candle_history.items():
+            if len(candles) < 21:
+                continue
+
+            signal = self.pipeline.evaluate(
+                asset,
+                [candle["close"] for candle in candles],
+                candles=list(candles),
+            )
+
             if signal is not None:
                 candidates.append(signal)
+
         if not candidates:
             return None
-        return max(candidates, key=lambda signal: signal.confidence)
+
+        return max(
+            candidates,
+            key=lambda signal: signal.confidence,
+        )
 
     async def open_trade(self, signal: Signal, price: float) -> TradeResult:
         request = TradeRequest(
