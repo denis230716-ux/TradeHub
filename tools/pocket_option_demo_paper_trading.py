@@ -53,6 +53,8 @@ async def main() -> None:
             raise RuntimeError("No Demo market snapshots were received")
 
         print(f"Paper trading completed: snapshots={snapshots}")
+    finally:
+        await market.close()
 
 
 if __name__ == "__main__":
