@@ -130,7 +130,7 @@ class PocketOptionSocketIO:
             self.disconnected.set()
 
     async def connect(self) -> None:
-        auth = self._authorization(self.auth_frame)
+        self._authorization(self.auth_frame)
         self.ws = await websockets.connect(
             self.url,
             additional_headers={"Origin": self.origin},
@@ -149,11 +149,8 @@ class PocketOptionSocketIO:
         if isinstance(connected, bytes) or not str(connected).startswith("40"):
             raise RuntimeError("Socket.IO connection was not established")
 
-        await self.ws.send(
-            "42" + json.dumps(["auth", auth], separators=(",", ":"))
-        )
-
         self._reader_task = asyncio.create_task(self._reader())
+        await self.ws.send(self.auth_frame)
         await asyncio.wait_for(self.authenticated.wait(), timeout=15)
 
     async def wait_for_assets(self, timeout: float = 20) -> list[dict[str, Any]]:
