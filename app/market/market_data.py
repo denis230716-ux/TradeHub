@@ -16,9 +16,8 @@ class MarketDataProvider:
 class PocketOptionMarketData(MarketDataProvider):
     """Verified Demo market-data adapter.
 
-    It converts Pocket Option updateStream and updateHistoryNewFast
-    payloads into MarketSnapshot objects. Order execution is intentionally
-    outside this adapter.
+    Pocket Option updateHistoryNewFast candle rows are:
+    [timestamp, open, close, high, low, volume].
     """
 
     def __init__(
@@ -34,6 +33,16 @@ class PocketOptionMarketData(MarketDataProvider):
         )
 
     @staticmethod
+    def _timestamp(value: Any) -> float | None:
+        try:
+            timestamp = float(value)
+        except (TypeError, ValueError):
+            return None
+        if timestamp > 10_000_000_000:
+            timestamp /= 1000.0
+        return timestamp
+
+    @staticmethod
     def _rows(data: Any) -> list[Any]:
         if isinstance(data, list) and data and isinstance(data[0], list):
             return data
@@ -45,53 +54,80 @@ class PocketOptionMarketData(MarketDataProvider):
 
     @classmethod
     def decode_history_update(cls, data: Any) -> list[MarketSnapshot]:
-        """Decode verified updateHistoryNewFast history rows."""
+        """Decode verified OHLCV candles from updateHistoryNewFast."""
         if not isinstance(data, dict):
             return []
 
         asset = data.get("asset")
-        history = data.get("history")
+        candles = data.get("candles")
+        period = data.get("period")
+
         if not isinstance(asset, str) or not asset.strip():
             return []
-        if not isinstance(history, list):
+        if not isinstance(candles, list):
             return []
 
-        period = data.get("period")
-        candles = data.get("candles")
         snapshots: list[MarketSnapshot] = []
-        for row in history:
-            if not isinstance(row, (list, tuple)) or len(row) < 2:
+
+        for row in candles:
+            if not isinstance(row, (list, tuple)) or len(row) < 5:
                 continue
+
+            timestamp = cls._timestamp(row[0])
+            if timestamp is None:
+                continue
+
             try:
-                numeric_timestamp = float(row[0])
-                numeric_price = float(row[1])
+                open_price = float(row[1])
+                close_price = float(row[2])
+                high_price = float(row[3])
+                low_price = float(row[4])
+                volume = float(row[5]) if len(row) > 5 else 0.0
             except (TypeError, ValueError):
                 continue
-            if numeric_price <= 0:
+
+            if min(open_price, close_price, high_price, low_price) <= 0:
                 continue
-            if numeric_timestamp > 10_000_000_000:
-                numeric_timestamp /= 1000.0
+            if high_price < max(open_price, close_price):
+                continue
+            if low_price > min(open_price, close_price):
+                continue
+            if volume < 0:
+                continue
+
+            candle = {
+                "open": open_price,
+                "close": close_price,
+                "high": high_price,
+                "low": low_price,
+                "volume": volume,
+                "timestamp": timestamp,
+                "period": period,
+            }
 
             snapshots.append(
                 MarketSnapshot(
                     asset=asset,
-                    price=numeric_price,
+                    price=close_price,
                     timestamp=datetime.fromtimestamp(
-                        numeric_timestamp, tz=timezone.utc
+                        timestamp,
+                        tz=timezone.utc,
                     ),
                     features={
                         "source": "pocket_option_updateHistoryNewFast",
                         "period": period,
-                        "candles": candles,
+                        "candle": candle,
                     },
                 )
             )
-        return snapshots
+
+        return sorted(snapshots, key=lambda snapshot: snapshot.timestamp)
 
     @classmethod
     def decode_stream_update(cls, data: Any) -> list[MarketSnapshot]:
         """Decode the verified [asset, timestamp, price] tick format."""
         snapshots: list[MarketSnapshot] = []
+
         for row in cls._rows(data):
             if isinstance(row, dict):
                 asset = row.get("asset") or row.get("symbol")
@@ -104,26 +140,33 @@ class PocketOptionMarketData(MarketDataProvider):
 
             if not isinstance(asset, str) or not asset.strip():
                 continue
+
+            numeric_timestamp = cls._timestamp(timestamp)
+            if numeric_timestamp is None:
+                continue
+
             try:
                 numeric_price = float(price)
-                numeric_timestamp = float(timestamp)
             except (TypeError, ValueError):
                 continue
+
             if numeric_price <= 0:
                 continue
-            if numeric_timestamp > 10_000_000_000:
-                numeric_timestamp /= 1000.0
 
             snapshots.append(
                 MarketSnapshot(
                     asset=asset,
                     price=numeric_price,
                     timestamp=datetime.fromtimestamp(
-                        numeric_timestamp, tz=timezone.utc
+                        numeric_timestamp,
+                        tz=timezone.utc,
                     ),
-                    features={"source": "pocket_option_updateStream"},
+                    features={
+                        "source": "pocket_option_updateStream",
+                    },
                 )
             )
+
         return snapshots
 
     async def connect(self) -> None:
@@ -137,7 +180,7 @@ class PocketOptionMarketData(MarketDataProvider):
         await self.client.subscribe(asset, period=period)
 
     async def stream(self, timeout: float = 30.0):
-        """Yield verified history first, then realtime Demo ticks."""
+        """Yield verified history candles first, then realtime Demo ticks."""
         if self.client is None:
             raise RuntimeError("Pocket Option Demo auth frame is not configured")
 
