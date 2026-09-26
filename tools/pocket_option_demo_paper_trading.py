@@ -40,12 +40,12 @@ async def main() -> None:
                     f"DATA snapshots={snapshots} asset={snapshot.asset} "
                     f"price={snapshot.price} signal=HOLD "
                     f"state={diagnostics.get('market_state', 'n/a')} "
-                    f"trend={float(diagnostics.get("trend", 0.0)):.4f} "
-                    f"momentum={float(diagnostics.get("momentum", 0.0)):.4f} "
-                    f"rsi={float(diagnostics.get("rsi", 50.0)):.2f} "
-                    f"pred={float(diagnostics.get("prediction_change", 0.0)):.4f} "
-                    f"buy={float(diagnostics.get("buy_score", 0.0)):.1f} "
-                    f"sell={float(diagnostics.get("sell_score", 0.0)):.1f} "
+                    f"trend={float(diagnostics.get('trend', 0.0)):.4f} "
+                    f"momentum={float(diagnostics.get('momentum', 0.0)):.4f} "
+                    f"rsi={float(diagnostics.get('rsi', 50.0)):.2f} "
+                    f"pred={float(diagnostics.get('prediction_change', 0.0)):.4f} "
+                    f"buy={float(diagnostics.get('buy_score', 0.0)):.1f} "
+                    f"sell={float(diagnostics.get('sell_score', 0.0)):.1f} "
                     f"allowed={diagnostics.get('trading_allowed', False)}"
                 )
                 continue
