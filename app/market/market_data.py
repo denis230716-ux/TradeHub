@@ -44,6 +44,56 @@ class PocketOptionMarketData(MarketDataProvider):
         return []
 
     @classmethod
+    def decode_history_update(cls, data: Any) -> list[MarketSnapshot]:
+        """Decode verified updateHistoryNewFast history rows.
+
+        Confirmed Demo shape:
+        {"asset": str, "period": int, "history": [[timestamp, price], ...]}.
+        The optional "candles" field is preserved without assuming its schema.
+        """
+        if not isinstance(data, dict):
+            return []
+
+        asset = data.get("asset")
+        history = data.get("history")
+        if not isinstance(asset, str) or not asset.strip():
+            return []
+        if not isinstance(history, list):
+            return []
+
+        period = data.get("period")
+        candles = data.get("candles")
+        snapshots: list[MarketSnapshot] = []
+        for row in history:
+            if not isinstance(row, (list, tuple)) or len(row) < 2:
+                continue
+            try:
+                numeric_timestamp = float(row[0])
+                numeric_price = float(row[1])
+            except (TypeError, ValueError):
+                continue
+            if numeric_price <= 0:
+                continue
+            if numeric_timestamp > 10_000_000_000:
+                numeric_timestamp /= 1000.0
+
+            snapshots.append(
+                MarketSnapshot(
+                    asset=asset,
+                    price=numeric_price,
+                    timestamp=datetime.fromtimestamp(
+                        numeric_timestamp, tz=timezone.utc
+                    ),
+                    features={
+                        "source": "pocket_option_updateHistoryNewFast",
+                        "period": period,
+                        "candles": candles,
+                    },
+                )
+            )
+        return snapshots
+
+    @classmethod
     def decode_stream_update(cls, data: Any) -> list[MarketSnapshot]:
         """Decode the verified [asset, timestamp, price] tick format."""
         snapshots: list[MarketSnapshot] = []
