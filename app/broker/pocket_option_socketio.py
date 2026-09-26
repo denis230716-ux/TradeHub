@@ -55,12 +55,27 @@ class PocketOptionSocketIO:
         @self.sio.on("updateAssets")
         async def update_assets(data: Any = None) -> None:
             self._record("updateAssets")
-            if isinstance(data, list):
-                self.assets.extend(
-                    item for item in data if isinstance(item, dict)
-                )
-            elif isinstance(data, dict):
-                self.assets.append(data)
+            if not isinstance(data, list):
+                return
+
+            for row in data:
+                if isinstance(row, dict):
+                    self.assets.append(row)
+                elif isinstance(row, list) and len(row) >= 2:
+                    symbol = row[1]
+                    if isinstance(symbol, str) and symbol.strip():
+                        self.assets.append(
+                            {
+                                "id": row[0],
+                                "symbol": symbol,
+                                "name": row[2] if len(row) > 2 else symbol,
+                                "category": row[3] if len(row) > 3 else "unknown",
+                                "payout": row[5] if len(row) > 5 else 0,
+                                "is_available": row[14] if len(row) > 14 else False,
+                                "timeframes": row[15] if len(row) > 15 else [],
+                                "raw": row,
+                            }
+                        )
 
         @self.sio.on("updateStream")
         async def update_stream(data: Any = None) -> None:
