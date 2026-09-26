@@ -118,9 +118,47 @@ class PocketOptionSocketIO:
         elif event == "updateCharts":
             self.chart_updates.append(data)
 
+    async def _handle_binary_event(self, header: str) -> None:
+        """Decode Socket.IO binary event header and its following payload."""
+        try:
+            packet = json.loads(header.split("-", 1)[1])
+            if not isinstance(packet, list) or not packet:
+                return
+            event = packet[0]
+            self._record(event)
+            payload = await asyncio.wait_for(self.ws.recv(), timeout=5)
+            if isinstance(payload, bytes):
+                try:
+                    data = json.loads(payload.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    data = payload
+            else:
+                try:
+                    data = json.loads(str(payload))
+                except json.JSONDecodeError:
+                    data = payload
+
+            if event == "successauth":
+                self.authenticated.set()
+            elif event == "updateAssets":
+                self._decode_assets(data)
+            elif event == "updateStream":
+                self.stream_updates.append(data)
+            elif event == "updateHistoryNewFast":
+                self.history_updates.append(data)
+            elif event == "updateCharts":
+                self.chart_updates.append(data)
+        except (asyncio.TimeoutError, json.JSONDecodeError, IndexError):
+            return
+
     async def _reader(self) -> None:
         try:
             async for message in self.ws:
+                if isinstance(message, bytes):
+                    continue
+                if isinstance(message, str) and message.startswith("451-"):
+                    await self._handle_binary_event(message)
+                    continue
                 self._decode(message)
         except asyncio.CancelledError:
             raise
@@ -128,7 +166,6 @@ class PocketOptionSocketIO:
             self.disconnected.set()
         finally:
             self.disconnected.set()
-
     async def connect(self) -> None:
         self._authorization(self.auth_frame)
         self.ws = await websockets.connect(
