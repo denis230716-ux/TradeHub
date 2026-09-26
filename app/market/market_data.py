@@ -16,8 +16,9 @@ class MarketDataProvider:
 class PocketOptionMarketData(MarketDataProvider):
     """Verified Demo market-data adapter.
 
-    It converts Pocket Option updateStream payloads into MarketSnapshot objects.
-    Order execution is intentionally outside this adapter.
+    It converts Pocket Option updateStream and updateHistoryNewFast
+    payloads into MarketSnapshot objects. Order execution is intentionally
+    outside this adapter.
     """
 
     def __init__(
@@ -26,7 +27,6 @@ class PocketOptionMarketData(MarketDataProvider):
         token: str | None = None,
         client: PocketOptionSocketIO | None = None,
     ) -> None:
-        # Pocket Option uses the complete auth frame as the session value here.
         self.session = session
         self.token = token
         self.client = client or (
@@ -45,12 +45,7 @@ class PocketOptionMarketData(MarketDataProvider):
 
     @classmethod
     def decode_history_update(cls, data: Any) -> list[MarketSnapshot]:
-        """Decode verified updateHistoryNewFast history rows.
-
-        Confirmed Demo shape:
-        {"asset": str, "period": int, "history": [[timestamp, price], ...]}.
-        The optional "candles" field is preserved without assuming its schema.
-        """
+        """Decode verified updateHistoryNewFast history rows."""
         if not isinstance(data, dict):
             return []
 
@@ -142,22 +137,35 @@ class PocketOptionMarketData(MarketDataProvider):
         await self.client.subscribe(asset, period=period)
 
     async def stream(self, timeout: float = 30.0):
-        """Yield realtime Demo ticks from the subscribed market stream."""
+        """Yield verified history first, then realtime Demo ticks."""
         if self.client is None:
             raise RuntimeError("Pocket Option Demo auth frame is not configured")
 
-        index = 0
+        history_index = 0
+        stream_index = 0
         deadline = asyncio.get_running_loop().time() + timeout
+
         while asyncio.get_running_loop().time() < deadline:
-            if index < len(self.client.stream_updates):
-                update = self.client.stream_updates[index]
-                index += 1
+            progressed = False
+
+            while history_index < len(self.client.history_updates):
+                update = self.client.history_updates[history_index]
+                history_index += 1
+                progressed = True
+                for snapshot in self.decode_history_update(update):
+                    yield snapshot
+
+            while stream_index < len(self.client.stream_updates):
+                update = self.client.stream_updates[stream_index]
+                stream_index += 1
+                progressed = True
                 for snapshot in self.decode_stream_update(update):
                     yield snapshot
-                continue
+
             if self.client.disconnected.is_set():
                 break
-            await asyncio.sleep(0.1)
+            if not progressed:
+                await asyncio.sleep(0.1)
 
     async def close(self) -> None:
         if self.client is not None:
