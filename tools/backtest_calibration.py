@@ -1,0 +1,293 @@
+from __future__ import annotations
+
+import asyncio
+import os
+from dataclasses import dataclass
+
+from app.market.market_data import PocketOptionMarketData
+from app.ml.predictor import MarketPredictor
+from app.signals.generator import SignalGenerator
+from app.strategy.indicators import calculate_momentum, calculate_rsi
+from app.strategy.market_analysis import MarketAnalysis
+
+
+@dataclass(slots=True)
+class Sample:
+    buy: float
+    sell: float
+    prediction: float
+    index: int
+    close: float
+
+
+@dataclass(slots=True)
+class Result:
+    signals: int = 0
+    wins: int = 0
+    losses: int = 0
+
+    @property
+    def win_rate(self) -> float:
+        decided = self.wins + self.losses
+        return self.wins / decided * 100 if decided else 0.0
+
+
+def score_direction(
+    buy: float,
+    sell: float,
+    buy_threshold: float,
+    sell_threshold: float,
+    difference: float,
+) -> str:
+    gap = buy - sell
+    if buy >= buy_threshold and gap >= difference:
+        return "CALL"
+    if sell >= sell_threshold and gap <= -difference:
+        return "PUT"
+    return "HOLD"
+
+
+def evaluate_config(
+    samples: list[Sample],
+    closes: list[float],
+    start: int,
+    end: int,
+    buy_threshold: float,
+    sell_threshold: float,
+    difference: float,
+    guard_threshold: float,
+    horizon: int,
+) -> Result:
+    result = Result()
+    for sample in samples:
+        if sample.index < start or sample.index >= end:
+            continue
+        if sample.index + horizon >= len(closes):
+            continue
+        if abs(sample.prediction) < guard_threshold:
+            continue
+
+        direction = score_direction(
+            sample.buy,
+            sample.sell,
+            buy_threshold,
+            sell_threshold,
+            difference,
+        )
+        if direction == "HOLD":
+            continue
+
+        result.signals += 1
+        future = closes[sample.index + horizon]
+        if direction == "CALL":
+            if future > sample.close:
+                result.wins += 1
+            elif future < sample.close:
+                result.losses += 1
+        else:
+            if future < sample.close:
+                result.wins += 1
+            elif future > sample.close:
+                result.losses += 1
+    return result
+
+
+def build_samples(candles: list[dict], asset: str) -> list[Sample]:
+    analysis_engine = MarketAnalysis()
+    predictor = MarketPredictor()
+    generator = SignalGenerator()
+    closes = [float(c["close"]) for c in candles]
+    samples: list[Sample] = []
+
+    for index in range(20, len(candles)):
+        window = candles[: index + 1]
+        market = analysis_engine.analyze(window)
+        if not market.trading_allowed:
+            continue
+
+        prices = closes[: index + 1]
+        prediction = predictor.predict(asset, prices)
+        current = prediction.current_price
+        prediction_change = (
+            (prediction.predicted_price - current) / current * 100
+            if current > 0 else 0.0
+        )
+        analysis = {
+            "trend": market.trend_percent,
+            "momentum": calculate_momentum(prices, 5) or 0.0,
+            "rsi": calculate_rsi(prices, 14) or 50.0,
+            "near_support": market.near_support,
+            "near_resistance": market.near_resistance,
+            "prediction_change": prediction_change,
+            "prediction_confidence": prediction.confidence,
+        }
+        generated = generator.generate_signal(asset, analysis)
+        samples.append(
+            Sample(
+                buy=generated.buy_score,
+                sell=generated.sell_score,
+                prediction=prediction_change,
+                index=index,
+                close=current,
+            )
+        )
+    return samples
+
+
+async def main() -> None:
+    ssid = os.environ.get("POCKET_OPTION_SSID", "").strip()
+    if not ssid:
+        raise RuntimeError("POCKET_OPTION_SSID secret is not configured")
+
+    asset = os.environ.get("POCKET_OPTION_ASSET", "EURJPY_otc")
+    period = int(os.environ.get("POCKET_OPTION_PERIOD", "5"))
+    timeout = float(os.environ.get("POCKET_OPTION_BACKTEST_TIMEOUT", "300"))
+    horizon = int(os.environ.get("POCKET_OPTION_BACKTEST_HORIZON", "1"))
+
+    market = PocketOptionMarketData(session=ssid)
+    if market.client is None:
+        raise RuntimeError("Pocket Option transport is not initialized")
+
+    candles_by_timestamp: dict[int, dict] = {}
+    try:
+        await market.connect()
+        await market.subscribe(asset, period=period)
+        print(
+            f"BACKTEST_START asset={asset} period={period}s "
+            f"timeout={timeout:.0f}s"
+        )
+        print("MODE=DEMO_ONLY LIVE_TRADING_BLOCKED")
+        print("NO_ORDERS=true")
+
+        async for snapshot in market.stream(timeout=timeout):
+            candle = snapshot.features.get("candle") if snapshot.features else None
+            if not isinstance(candle, dict):
+                continue
+            try:
+                timestamp = int(candle["timestamp"])
+                candles_by_timestamp[timestamp] = {
+                    "timestamp": timestamp,
+                    "open": float(candle["open"]),
+                    "close": float(candle["close"]),
+                    "high": float(candle["high"]),
+                    "low": float(candle["low"]),
+                    "volume": float(candle.get("volume", 0.0)),
+                }
+            except (KeyError, TypeError, ValueError):
+                continue
+
+        candles = [candles_by_timestamp[k] for k in sorted(candles_by_timestamp)]
+        if len(candles) < 60:
+            raise RuntimeError(
+                f"Not enough unique OHLCV candles: {len(candles)}"
+            )
+
+        closes = [c["close"] for c in candles]
+        samples = build_samples(candles, asset)
+        split_index = int(len(candles) * 0.60)
+
+        print(
+            f"DATA candles={len(candles)} samples={len(samples)} "
+            f"split={split_index}"
+        )
+        print(
+            f"HORIZON candles={horizon} seconds={horizon * period}"
+        )
+        print(
+            "CURRENT_CONFIG buy>=55 sell>=55 difference>=20 guard>=0.100%"
+        )
+
+        current_train = evaluate_config(
+            samples, closes, 20, split_index,
+            55, 55, 20, 0.10, horizon
+        )
+        current_val = evaluate_config(
+            samples, closes, split_index, len(candles) - horizon,
+            55, 55, 20, 0.10, horizon
+        )
+        print(
+            "CURRENT_RESULT "
+            f"train_signals={current_train.signals} "
+            f"train_win_rate={current_train.win_rate:.2f}% "
+            f"validation_signals={current_val.signals} "
+            f"validation_win_rate={current_val.win_rate:.2f}%"
+        )
+
+        candidates = []
+        for threshold in (15, 20, 25, 30, 35, 40, 45, 50, 55):
+            for difference in (0, 5, 10, 15, 20):
+                for guard in (0.0, 0.02, 0.05, 0.10):
+                    train = evaluate_config(
+                        samples, closes, 20, split_index,
+                        threshold, threshold, difference, guard, horizon
+                    )
+                    validation = evaluate_config(
+                        samples, closes, split_index, len(candles) - horizon,
+                        threshold, threshold, difference, guard, horizon
+                    )
+                    if train.signals < 10 or validation.signals < 10:
+                        continue
+                    candidates.append(
+                        (
+                            validation.win_rate,
+                            validation.signals,
+                            train.win_rate,
+                            threshold,
+                            difference,
+                            guard,
+                            train,
+                            validation,
+                        )
+                    )
+
+        candidates.sort(
+            key=lambda x: (x[0], x[1], x[2]),
+            reverse=True,
+        )
+        if not candidates:
+            print(
+                "CALIBRATION_CANDIDATES "
+                "none_with_minimum_10_signals_each_split=true"
+            )
+        else:
+            print(
+                "CALIBRATION_CANDIDATES "
+                "top=12 sorted_by_validation_win_rate"
+            )
+            for rank, item in enumerate(candidates[:12], 1):
+                (
+                    val_rate,
+                    _,
+                    train_rate,
+                    threshold,
+                    difference,
+                    guard,
+                    train,
+                    validation,
+                ) = item
+                print(
+                    f"CANDIDATE rank={rank} score={threshold} "
+                    f"diff={difference} guard={guard:.3f}% "
+                    f"train={train.signals}/{train_rate:.2f}% "
+                    f"validation={validation.signals}/{val_rate:.2f}%"
+                )
+
+        for test_horizon in (1, 3):
+            current = evaluate_config(
+                samples, closes, split_index, len(candles) - test_horizon,
+                55, 55, 20, 0.10, test_horizon
+            )
+            print(
+                f"ROBUSTNESS horizon={test_horizon} "
+                f"seconds={test_horizon * period} "
+                f"validation_signals={current.signals} "
+                f"validation_win_rate={current.win_rate:.2f}%"
+            )
+
+        print("BACKTEST_COMPLETED no_orders=true")
+    finally:
+        await market.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
