@@ -1,0 +1,29 @@
+name: TradeHub Score Calibration
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  score-calibration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run Score Calibration
+        env:
+          POCKET_OPTION_SSID: ${{ secrets.POCKET_OPTION_SSID }}
+          POCKET_OPTION_ASSET: EURJPY_otc
+          POCKET_OPTION_PERIOD: "5"
+          POCKET_OPTION_CALIBRATION_TIMEOUT: "300"
+        run: python -m tools.score_calibration
