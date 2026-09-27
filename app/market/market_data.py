@@ -54,72 +54,106 @@ class PocketOptionMarketData(MarketDataProvider):
 
     @classmethod
     def decode_history_update(cls, data: Any) -> list[MarketSnapshot]:
-        """Decode verified OHLCV candles from updateHistoryNewFast."""
+        """Decode OHLCV candles, with legacy history compatibility."""
         if not isinstance(data, dict):
             return []
 
         asset = data.get("asset")
         candles = data.get("candles")
+        history = data.get("history")
         period = data.get("period")
 
         if not isinstance(asset, str) or not asset.strip():
             return []
-        if not isinstance(candles, list):
-            return []
 
         snapshots: list[MarketSnapshot] = []
 
-        for row in candles:
-            if not isinstance(row, (list, tuple)) or len(row) < 5:
-                continue
+        # Verified live Demo payload: [timestamp, open, close, high, low, volume].
+        if isinstance(candles, list):
+            for row in candles:
+                if not isinstance(row, (list, tuple)) or len(row) < 5:
+                    continue
 
-            timestamp = cls._timestamp(row[0])
-            if timestamp is None:
-                continue
+                timestamp = cls._timestamp(row[0])
+                if timestamp is None:
+                    continue
 
-            try:
-                open_price = float(row[1])
-                close_price = float(row[2])
-                high_price = float(row[3])
-                low_price = float(row[4])
-                volume = float(row[5]) if len(row) > 5 else 0.0
-            except (TypeError, ValueError):
-                continue
+                try:
+                    open_price = float(row[1])
+                    close_price = float(row[2])
+                    high_price = float(row[3])
+                    low_price = float(row[4])
+                    volume = float(row[5]) if len(row) > 5 else 0.0
+                except (TypeError, ValueError):
+                    continue
 
-            if min(open_price, close_price, high_price, low_price) <= 0:
-                continue
-            if high_price < max(open_price, close_price):
-                continue
-            if low_price > min(open_price, close_price):
-                continue
-            if volume < 0:
-                continue
+                if min(open_price, close_price, high_price, low_price) <= 0:
+                    continue
+                if high_price < max(open_price, close_price):
+                    continue
+                if low_price > min(open_price, close_price):
+                    continue
+                if volume < 0:
+                    continue
 
-            candle = {
-                "open": open_price,
-                "close": close_price,
-                "high": high_price,
-                "low": low_price,
-                "volume": volume,
-                "timestamp": timestamp,
-                "period": period,
-            }
-
-            snapshots.append(
-                MarketSnapshot(
-                    asset=asset,
-                    price=close_price,
-                    timestamp=datetime.fromtimestamp(
-                        timestamp,
-                        tz=timezone.utc,
-                    ),
-                    features={
-                        "source": "pocket_option_updateHistoryNewFast",
-                        "period": period,
-                        "candle": candle,
-                    },
+                snapshots.append(
+                    MarketSnapshot(
+                        asset=asset,
+                        price=close_price,
+                        timestamp=datetime.fromtimestamp(
+                            timestamp,
+                            tz=timezone.utc,
+                        ),
+                        features={
+                            "source": "pocket_option_updateHistoryNewFast",
+                            "period": period,
+                            "candle": {
+                                "open": open_price,
+                                "close": close_price,
+                                "high": high_price,
+                                "low": low_price,
+                                "volume": volume,
+                                "timestamp": timestamp,
+                                "period": period,
+                            },
+                            "candles": candles,
+                        },
+                    )
                 )
-            )
+
+        # Backward compatibility for older payloads where history is tick data.
+        if not snapshots and isinstance(history, list):
+            for row in history:
+                if not isinstance(row, (list, tuple)) or len(row) < 2:
+                    continue
+
+                timestamp = cls._timestamp(row[0])
+                if timestamp is None:
+                    continue
+
+                try:
+                    price = float(row[1])
+                except (TypeError, ValueError):
+                    continue
+
+                if price <= 0:
+                    continue
+
+                snapshots.append(
+                    MarketSnapshot(
+                        asset=asset,
+                        price=price,
+                        timestamp=datetime.fromtimestamp(
+                            timestamp,
+                            tz=timezone.utc,
+                        ),
+                        features={
+                            "source": "pocket_option_history_legacy",
+                            "period": period,
+                            "candles": candles,
+                        },
+                    )
+                )
 
         return sorted(snapshots, key=lambda snapshot: snapshot.timestamp)
 
