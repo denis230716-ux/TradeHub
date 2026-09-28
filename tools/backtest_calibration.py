@@ -156,23 +156,24 @@ async def collect_full_history(
                 continue
 
             candles = update.get("candles")
-            if not isinstance(candles, list):
+            history = update.get("history")
+            if not isinstance(candles, list) and not isinstance(history, list):
                 continue
 
-            payload_count = len(candles)
+            payload_count = len(candles) if isinstance(candles, list) else 0
+            history_count = len(history) if isinstance(history, list) else 0
             payload_counts.append(payload_count)
             print(
                 f"HISTORY_PAYLOAD asset={asset} period={update.get('period')} "
-                f"candles_rows={payload_count} "
-                f"history_rows="
-                f"{len(update.get('history', [])) if isinstance(update.get('history'), list) else 0}"
+                f"candles_rows={payload_count} history_rows={history_count}"
             )
 
             now = asyncio.get_running_loop().time()
             if collection_deadline is None:
                 collection_deadline = min(deadline, now + 10.0)
 
-            for row in candles:
+            if isinstance(candles, list):
+                for row in candles:
                 if not isinstance(row, (list, tuple)) or len(row) < 5:
                     continue
                 try:
@@ -200,6 +201,28 @@ async def collect_full_history(
                     "low": low_price,
                     "volume": volume,
                 }
+
+            if isinstance(history, list):
+                for row in history:
+                    if not isinstance(row, (list, tuple)) or len(row) < 2:
+                        continue
+                    try:
+                        timestamp = int(float(row[0]))
+                        close_price = float(row[1])
+                    except (TypeError, ValueError):
+                        continue
+                    if close_price <= 0:
+                        continue
+                    if timestamp in candles_by_timestamp:
+                        continue
+                    candles_by_timestamp[timestamp] = {
+                        "timestamp": timestamp,
+                        "open": close_price,
+                        "close": close_price,
+                        "high": close_price,
+                        "low": close_price,
+                        "volume": 0.0,
+                    }
 
         if collection_deadline is not None and asyncio.get_running_loop().time() >= collection_deadline:
             break
