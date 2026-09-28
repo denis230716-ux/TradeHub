@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+import time
 
 from app.core.paper_trader import DemoPaperTrader
 from app.execution.executor import PocketOptionDemoExecutor
@@ -93,8 +94,8 @@ async def main() -> None:
             remaining = deadline - time.monotonic()
             try:
                 async for snapshot in market.stream(timeout=remaining):
-            trader.ingest(snapshot)
-            snapshots += 1
+                    trader.ingest(snapshot)
+                    snapshots += 1
 
                 if snapshots < 21:
                     continue
@@ -179,15 +180,15 @@ async def main() -> None:
                 if result.accepted:
                     orders += 1
 
-                except RuntimeError as exc:
-                    if time.monotonic() >= deadline:
-                        break
-                    print(f"STRATEGY_RECONNECT reason={exc}")
-                    if market is not None:
-                        await market.close()
-                    await asyncio.sleep(1)
-                    market = await connect_market()
-                    trader.executor = PocketOptionDemoExecutor(market.client)
+            except RuntimeError as exc:
+                if time.monotonic() >= deadline:
+                    break
+                print(f"STRATEGY_RECONNECT reason={exc}")
+                if market is not None:
+                    await market.close()
+                await asyncio.sleep(1)
+                market = await connect_market()
+                trader.executor = PocketOptionDemoExecutor(market.client)
 
         print(
             "STRATEGY_TEST_COMPLETED "
