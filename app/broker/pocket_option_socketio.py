@@ -197,6 +197,22 @@ class PocketOptionSocketIO:
         await self.ws.send(self.auth_frame)
         await asyncio.wait_for(self.authenticated.wait(), timeout=15)
 
+    async def available_assets(
+        self,
+        timeout: float = 20,
+    ) -> list[str]:
+        assets = await self.wait_for_assets(timeout=timeout)
+        symbols: list[str] = []
+        for asset in assets:
+            symbol = asset.get("symbol")
+            if (
+                isinstance(symbol, str)
+                and symbol.strip()
+                and asset.get("is_available", True)
+            ):
+                symbols.append(symbol.strip())
+        return list(dict.fromkeys(symbols))
+
     async def wait_for_assets(self, timeout: float = 20) -> list[dict[str, Any]]:
         deadline = asyncio.get_running_loop().time() + timeout
         while not self.assets:
