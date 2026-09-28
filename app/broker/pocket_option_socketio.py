@@ -37,6 +37,7 @@ class PocketOptionSocketIO:
         self.chart_updates: list[Any] = []
         self._reader_task: asyncio.Task[None] | None = None
         self.order_events: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
+        self.disconnect_reason: str | None = None
 
     def _record(self, event: str) -> None:
         if event not in self.events:
@@ -167,7 +168,8 @@ class PocketOptionSocketIO:
                 self._decode(message)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
+            self.disconnect_reason = f"{type(exc).__name__}: {exc}"
             self.disconnected.set()
         finally:
             self.disconnected.set()
