@@ -38,7 +38,7 @@ async def main() -> None:
     timeout = float(
         os.environ.get(
             "POCKET_OPTION_STRATEGY_TIMEOUT",
-            "30",
+            "86400",
         )
     )
 
