@@ -158,7 +158,11 @@ class PocketOptionMarketData(MarketDataProvider):
         return sorted(snapshots, key=lambda snapshot: snapshot.timestamp)
 
     @classmethod
-    def decode_stream_update(cls, data: Any) -> list[MarketSnapshot]:
+    def decode_stream_update(
+        cls,
+        data: Any,
+        candle_period: int = 5,
+    ) -> list[MarketSnapshot]:
         """Decode the verified [asset, timestamp, price] tick format."""
         snapshots: list[MarketSnapshot] = []
 
@@ -197,6 +201,19 @@ class PocketOptionMarketData(MarketDataProvider):
                     ),
                     features={
                         "source": "pocket_option_updateStream",
+                        "period": candle_period,
+                        "candle": {
+                            "open": numeric_price,
+                            "high": numeric_price,
+                            "low": numeric_price,
+                            "close": numeric_price,
+                            "volume": 0.0,
+                            "timestamp": float(
+                                int(numeric_timestamp) // candle_period
+                                * candle_period
+                            ),
+                            "period": candle_period,
+                        },
                     },
                 )
             )
