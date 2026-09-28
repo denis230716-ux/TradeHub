@@ -75,14 +75,24 @@ class DemoPaperTrader:
             return
 
         if timestamps and timestamp == timestamps[-1]:
-            candles[-1] = normalized
+            current = candles[-1]
+            current["high"] = max(current["high"], normalized["high"])
+            current["low"] = min(current["low"], normalized["low"])
+            current["close"] = normalized["close"]
+            current["volume"] += normalized["volume"]
             return
 
         timestamps.append(timestamp)
         candles.append(normalized)
 
     def evaluate(self) -> Signal | None:
+        return self.evaluate_with_diagnostics()[0]
+
+    def evaluate_with_diagnostics(
+        self,
+    ) -> tuple[Signal | None, dict[str, dict[str, float | str | bool]]]:
         candidates: list[Signal] = []
+        diagnostics: dict[str, dict[str, float | str | bool]] = {}
 
         for asset, candles in self.candle_history.items():
             if len(candles) < 21:
@@ -93,17 +103,20 @@ class DemoPaperTrader:
                 [candle["close"] for candle in candles],
                 candles=list(candles),
             )
+            asset_diagnostics = dict(self.pipeline.last_diagnostics)
+            asset_diagnostics["asset"] = asset
+            asset_diagnostics["candle_count"] = len(candles)
+            diagnostics[asset] = asset_diagnostics
 
             if signal is not None:
                 candidates.append(signal)
 
-        if not candidates:
-            return None
-
-        return max(
-            candidates,
-            key=lambda signal: signal.confidence,
+        selected = (
+            max(candidates, key=lambda signal: signal.confidence)
+            if candidates
+            else None
         )
+        return selected, diagnostics
 
     async def open_trade(self, signal: Signal, price: float) -> TradeResult:
         request = TradeRequest(
