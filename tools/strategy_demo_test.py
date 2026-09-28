@@ -133,6 +133,8 @@ async def main() -> None:
                         f"buy_score={float(diagnostics.get('buy_score', 0.0)):.1f} "
                         f"sell_score={float(diagnostics.get('sell_score', 0.0)):.1f} "
                         f"signal={diagnostics.get('signal', 'HOLD')} "
+                        f"signal_confidence={float(diagnostics.get('signal_confidence', 0.0)):.2f} "
+                        f"prediction_confidence={float(diagnostics.get('prediction_confidence', 0.0)):.2f} "
                         f"allowed={diagnostics.get('trading_allowed', False)}"
                     )
 
