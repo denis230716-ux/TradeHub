@@ -141,8 +141,10 @@ async def collect_full_history(
     timeout: float,
 ) -> list[dict]:
     deadline = asyncio.get_running_loop().time() + timeout
+    collection_deadline: float | None = None
     history_index = 0
     candles_by_timestamp: dict[int, dict] = {}
+    payload_counts: list[int] = []
 
     while asyncio.get_running_loop().time() < deadline:
         while history_index < len(market.client.history_updates):
@@ -156,6 +158,19 @@ async def collect_full_history(
             candles = update.get("candles")
             if not isinstance(candles, list):
                 continue
+
+            payload_count = len(candles)
+            payload_counts.append(payload_count)
+            print(
+                f"HISTORY_PAYLOAD asset={asset} period={update.get('period')} "
+                f"candles_rows={payload_count} "
+                f"history_rows="
+                f"{len(update.get('history', [])) if isinstance(update.get('history'), list) else 0}"
+            )
+
+            now = asyncio.get_running_loop().time()
+            if collection_deadline is None:
+                collection_deadline = min(deadline, now + 10.0)
 
             for row in candles:
                 if not isinstance(row, (list, tuple)) or len(row) < 5:
@@ -186,15 +201,19 @@ async def collect_full_history(
                     "volume": volume,
                 }
 
-            if len(candles_by_timestamp) >= 100:
-                return [
-                    candles_by_timestamp[key]
-                    for key in sorted(candles_by_timestamp)
-                ]
-
+        if collection_deadline is not None and asyncio.get_running_loop().time() >= collection_deadline:
+            break
         if market.client.disconnected.is_set():
             break
         await asyncio.sleep(0.1)
+
+    if payload_counts:
+        print(
+            f"HISTORY_SUMMARY payloads={len(payload_counts)} "
+            f"payload_max={max(payload_counts)} "
+            f"payload_min={min(payload_counts)} "
+            f"unique_candles={len(candles_by_timestamp)}"
+        )
 
     return [
         candles_by_timestamp[key]
