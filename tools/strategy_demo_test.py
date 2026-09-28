@@ -42,12 +42,6 @@ async def main() -> None:
         )
     )
 
-    max_orders = int(
-        os.environ.get(
-            "POCKET_OPTION_MAX_ORDERS",
-            "1",
-        )
-    )
 
     market = PocketOptionMarketData(
         session=ssid
@@ -140,13 +134,6 @@ async def main() -> None:
                 f"confidence={signal.confidence:.1f} "
                 f"reason={signal.reason}"
             )
-
-            if orders >= max_orders:
-                print(
-                    "ORDER_LIMIT_REACHED "
-                    f"max_orders={max_orders}"
-                )
-                break
 
             print(
                 "STRATEGY_ORDER "
