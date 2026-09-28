@@ -25,7 +25,10 @@ async def main() -> None:
     try:
         await market.connect()
         await market.subscribe(asset, period=period)
-        print(f"ROLLING_VALIDATION_START asset={asset} period={period}s timeout={timeout:.0f}s")
+        print(
+            f"ROLLING_VALIDATION_START asset={asset} period={period}s "
+            f"timeout={timeout:.0f}s"
+        )
         print("MODE=DEMO_ONLY LIVE_TRADING_BLOCKED")
         print("NO_ORDERS=true")
 
@@ -73,7 +76,7 @@ async def main() -> None:
         )
         print("ROLLING_VALIDATION_COMPLETED no_orders=true")
     finally:
-        await market.disconnect()
+        await market.close()
 
 
 if __name__ == "__main__":
