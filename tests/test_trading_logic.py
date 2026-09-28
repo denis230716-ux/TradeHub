@@ -56,8 +56,9 @@ def test_signal_generator_confirms_near_threshold_signal():
     result = generator.generate_signal(
         "TEST",
         {
-            "trend": 0.20,
+            "trend": 0.10,
             "momentum": 0.20,
+            "near_support": True,
             "rsi": 50,
             "prediction_confidence": 70,
         },
@@ -70,10 +71,11 @@ def test_signal_generator_rejects_unconfirmed_near_threshold_signal():
     result = generator.generate_signal(
         "TEST",
         {
-            "trend": 0.20,
-            "momentum": -0.20,
+            "trend": 0.10,
+            "momentum": 0.20,
+            "near_support": True,
             "rsi": 50,
-            "prediction_confidence": 70,
+            "prediction_confidence": 50,
         },
     )
     assert result.signal == "HOLD"
