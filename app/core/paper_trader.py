@@ -43,25 +43,43 @@ class DemoPaperTrader:
         self.candle_history: dict[str, deque[dict[str, float]]] = defaultdict(
             lambda: deque(maxlen=history_size)
         )
+        self._candle_timestamps: dict[str, deque[float]] = defaultdict(
+            lambda: deque(maxlen=history_size)
+        )
         self.sequence = 0
 
     def ingest(self, snapshot: MarketSnapshot) -> None:
         self.history[snapshot.asset].append(snapshot.price)
 
         candle = snapshot.features.get("candle")
-        if isinstance(candle, dict):
-            required = ("open", "high", "low", "close", "volume")
-            if all(key in candle for key in required):
-                try:
-                    normalized = {
-                        key: float(candle[key])
-                        for key in required
-                    }
-                except (TypeError, ValueError):
-                    normalized = None
+        if not isinstance(candle, dict):
+            return
 
-                if normalized is not None:
-                    self.candle_history[snapshot.asset].append(normalized)
+        required = ("open", "high", "low", "close", "volume", "timestamp")
+        if not all(key in candle for key in required):
+            return
+
+        try:
+            timestamp = float(candle["timestamp"])
+            normalized = {
+                key: float(candle[key])
+                for key in ("open", "high", "low", "close", "volume")
+            }
+        except (TypeError, ValueError):
+            return
+
+        timestamps = self._candle_timestamps[snapshot.asset]
+        candles = self.candle_history[snapshot.asset]
+
+        if timestamps and timestamp < timestamps[-1]:
+            return
+
+        if timestamps and timestamp == timestamps[-1]:
+            candles[-1] = normalized
+            return
+
+        timestamps.append(timestamp)
+        candles.append(normalized)
 
     def evaluate(self) -> Signal | None:
         candidates: list[Signal] = []
