@@ -134,6 +134,74 @@ def build_samples(candles: list[dict], asset: str) -> list[Sample]:
     return samples
 
 
+async def collect_full_history(
+    market: PocketOptionMarketData,
+    asset: str,
+    period: int,
+    timeout: float,
+) -> list[dict]:
+    deadline = asyncio.get_running_loop().time() + timeout
+    history_index = 0
+    candles_by_timestamp: dict[int, dict] = {}
+
+    while asyncio.get_running_loop().time() < deadline:
+        while history_index < len(market.client.history_updates):
+            update = market.client.history_updates[history_index]
+            history_index += 1
+            if not isinstance(update, dict) or update.get("asset") != asset:
+                continue
+            if update.get("period") not in (None, period):
+                continue
+
+            candles = update.get("candles")
+            if not isinstance(candles, list):
+                continue
+
+            for row in candles:
+                if not isinstance(row, (list, tuple)) or len(row) < 5:
+                    continue
+                try:
+                    timestamp = int(float(row[0]))
+                    open_price = float(row[1])
+                    close_price = float(row[2])
+                    high_price = float(row[3])
+                    low_price = float(row[4])
+                    volume = float(row[5]) if len(row) > 5 else 0.0
+                except (TypeError, ValueError):
+                    continue
+                if min(open_price, close_price, high_price, low_price) <= 0:
+                    continue
+                if high_price < max(open_price, close_price):
+                    continue
+                if low_price > min(open_price, close_price):
+                    continue
+                if volume < 0:
+                    continue
+                candles_by_timestamp[timestamp] = {
+                    "timestamp": timestamp,
+                    "open": open_price,
+                    "close": close_price,
+                    "high": high_price,
+                    "low": low_price,
+                    "volume": volume,
+                }
+
+            if len(candles_by_timestamp) >= 100:
+                return [
+                    candles_by_timestamp[key]
+                    for key in sorted(candles_by_timestamp)
+                ]
+
+        if market.client.disconnected.is_set():
+            break
+        await asyncio.sleep(0.1)
+
+    return [
+        candles_by_timestamp[key]
+        for key in sorted(candles_by_timestamp)
+    ]
+
+
 async def main() -> None:
     ssid = os.environ.get("POCKET_OPTION_SSID", "").strip()
     if not ssid:
@@ -148,7 +216,6 @@ async def main() -> None:
     if market.client is None:
         raise RuntimeError("Pocket Option transport is not initialized")
 
-    candles_by_timestamp: dict[int, dict] = {}
     try:
         await market.connect()
         await market.subscribe(asset, period=period)
@@ -159,24 +226,9 @@ async def main() -> None:
         print("MODE=DEMO_ONLY LIVE_TRADING_BLOCKED")
         print("NO_ORDERS=true")
 
-        async for snapshot in market.stream(timeout=timeout):
-            candle = snapshot.features.get("candle") if snapshot.features else None
-            if not isinstance(candle, dict):
-                continue
-            try:
-                timestamp = int(candle["timestamp"])
-                candles_by_timestamp[timestamp] = {
-                    "timestamp": timestamp,
-                    "open": float(candle["open"]),
-                    "close": float(candle["close"]),
-                    "high": float(candle["high"]),
-                    "low": float(candle["low"]),
-                    "volume": float(candle.get("volume", 0.0)),
-                }
-            except (KeyError, TypeError, ValueError):
-                continue
-
-        candles = [candles_by_timestamp[k] for k in sorted(candles_by_timestamp)]
+        candles = await collect_full_history(
+            market, asset, period, timeout
+        )
         if len(candles) < 60:
             raise RuntimeError(
                 f"Not enough unique OHLCV candles: {len(candles)}"
@@ -189,6 +241,10 @@ async def main() -> None:
         print(
             f"DATA candles={len(candles)} samples={len(samples)} "
             f"split={split_index}"
+        )
+        print(
+            f"DATA_RANGE first={candles[0]['timestamp']} "
+            f"last={candles[-1]['timestamp']}"
         )
         print(
             f"HORIZON candles={horizon} seconds={horizon * period}"
