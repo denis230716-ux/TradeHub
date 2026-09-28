@@ -1,0 +1,35 @@
+name: TradeHub Rolling Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      horizon:
+        description: "Forward candle horizon"
+        required: false
+        default: "1"
+
+permissions:
+  contents: read
+
+jobs:
+  rolling-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run Rolling Validation
+        env:
+          POCKET_OPTION_SSID: ${{ secrets.POCKET_OPTION_SSID }}
+          POCKET_OPTION_ASSET: EURJPY_otc
+          POCKET_OPTION_PERIOD: "5"
+          POCKET_OPTION_BACKTEST_TIMEOUT: "300"
+          POCKET_OPTION_BACKTEST_HORIZON: ${{ inputs.horizon }}
+        run: python -m tools.rolling_validation
