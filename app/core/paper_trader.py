@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime
+from time import monotonic
 from typing import Any
 
 from app.core.models import MarketSnapshot, Signal, TradeResult, TradeRequest
@@ -32,6 +33,7 @@ class DemoPaperTrader:
         amount: float = 100.0,
         expiration_seconds: int = 5,
         history_size: int = 120,
+        cooldown_seconds: int = 15,
     ):
         self.pipeline = pipeline or TradeHubPipeline()
         self.executor = executor or DryRunExecutor()
@@ -47,6 +49,8 @@ class DemoPaperTrader:
             lambda: deque(maxlen=history_size)
         )
         self.sequence = 0
+        self.cooldown_seconds = max(0, int(cooldown_seconds))
+        self._cooldown_until: dict[str, float] = {}
 
     def ingest(self, snapshot: MarketSnapshot) -> None:
         self.history[snapshot.asset].append(snapshot.price)
@@ -109,7 +113,12 @@ class DemoPaperTrader:
             diagnostics[asset] = asset_diagnostics
 
             if signal is not None:
-                candidates.append(signal)
+                cooldown_active = monotonic() < self._cooldown_until.get(
+                    signal.asset, 0.0
+                )
+                asset_diagnostics["cooldown_active"] = cooldown_active
+                if not cooldown_active:
+                    candidates.append(signal)
 
         selected = (
             max(candidates, key=lambda signal: signal.confidence)
@@ -126,6 +135,11 @@ class DemoPaperTrader:
             expiration_seconds=self.expiration_seconds,
         )
         result = await self.executor.execute(request)
+
+        if result.accepted:
+            self._cooldown_until[signal.asset] = (
+                monotonic() + self.cooldown_seconds
+            )
 
         if result.accepted and isinstance(self.executor, DryRunExecutor):
             self.sequence += 1
