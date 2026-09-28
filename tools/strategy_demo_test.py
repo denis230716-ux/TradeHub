@@ -104,25 +104,37 @@ async def main() -> None:
 
             evaluations += 1
 
-            signal = trader.evaluate()
-            diagnostics = trader.pipeline.last_diagnostics
+            signal, diagnostics_by_asset = trader.evaluate_with_diagnostics()
 
-            print(
-                "ANALYSIS "
-                f"n={snapshots} "
-                f"price={snapshot.price} "
-                f"state={diagnostics.get('market_state', 'n/a')} "
-                f"trend={float(diagnostics.get('trend', 0.0)):.6f}% "
-                f"momentum={float(diagnostics.get('momentum', 0.0)):.6f}% "
-                f"rsi={float(diagnostics.get('rsi', 50.0)):.2f} "
-                f"support={diagnostics.get('near_support', False)} "
-                f"resistance={diagnostics.get('near_resistance', False)} "
-                f"prediction={float(diagnostics.get('prediction_change', 0.0)):.6f}% "
-                f"prediction_confidence={float(diagnostics.get('prediction_confidence', 0.0)):.2f} "
-                f"buy_score={float(diagnostics.get('buy_score', 0.0)):.1f} "
-                f"sell_score={float(diagnostics.get('sell_score', 0.0)):.1f} "
-                f"allowed={diagnostics.get('trading_allowed', False)}"
-            )
+            if diagnostics_by_asset:
+                ranked = sorted(
+                    diagnostics_by_asset.values(),
+                    key=lambda item: max(
+                        float(item.get("buy_score", 0.0)),
+                        float(item.get("sell_score", 0.0)),
+                    ),
+                    reverse=True,
+                )
+                top = ranked[:3]
+                for diagnostics in top:
+                    print(
+                        "ASSET_ANALYSIS "
+                        f"n={snapshots} "
+                        f"asset={diagnostics.get('asset', 'n/a')} "
+                        f"price={float(trader.history[diagnostics['asset']][-1]):.8f} "
+                        f"state={diagnostics.get('market_state', 'n/a')} "
+                        f"trend={float(diagnostics.get('trend', 0.0)):.6f}% "
+                        f"momentum={float(diagnostics.get('momentum', 0.0)):.6f}% "
+                        f"rsi={float(diagnostics.get('rsi', 50.0)):.2f} "
+                        f"support={diagnostics.get('near_support', False)} "
+                        f"resistance={diagnostics.get('near_resistance', False)} "
+                        f"prediction={float(diagnostics.get('prediction_change', 0.0)):.6f}% "
+                        f"prediction_confidence={float(diagnostics.get('prediction_confidence', 0.0)):.2f} "
+                        f"buy_score={float(diagnostics.get('buy_score', 0.0)):.1f} "
+                        f"sell_score={float(diagnostics.get('sell_score', 0.0)):.1f} "
+                        f"signal={diagnostics.get('signal', 'HOLD')} "
+                        f"allowed={diagnostics.get('trading_allowed', False)}"
+                    )
 
             if signal is None:
                 print(
