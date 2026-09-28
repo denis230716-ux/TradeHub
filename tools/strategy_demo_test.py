@@ -159,9 +159,12 @@ async def main() -> None:
                 f"expiration={expiration}s"
             )
 
+            selected_price = float(
+                trader.history[signal.asset][-1]
+            )
             result = await trader.open_trade(
                 signal,
-                snapshot.price,
+                selected_price,
             )
 
             print(
