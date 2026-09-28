@@ -19,11 +19,18 @@ class SignalResult:
 class SignalGenerator:
     def __init__(self, config: Optional[Dict] = None):
         config = config or {}
-        # The scoring model has a maximum directional score of 50.
-        # Keep the default entry threshold inside the reachable range.
+        # 30 remains the strong-signal threshold. Near-threshold entries
+        # require independent confirmation instead of simply lowering it.
         self.min_buy_score = float(config.get("min_buy_score", 30))
         self.min_buy_difference = float(config.get("min_buy_difference", 10))
         self.min_sell_score = float(config.get("min_sell_score", 30))
+        self.near_threshold_score = float(config.get("near_threshold_score", 25))
+        self.near_threshold_difference = float(
+            config.get("near_threshold_difference", 6)
+        )
+        self.min_prediction_confidence = float(
+            config.get("min_prediction_confidence", 55)
+        )
         self.rsi_oversold = float(config.get("rsi_oversold", 35))
         self.rsi_overbought = float(config.get("rsi_overbought", 75))
 
@@ -33,6 +40,9 @@ class SignalGenerator:
         trend = float(analysis.get("trend", 0))
         momentum = float(analysis.get("momentum", 0))
         rsi = float(analysis.get("rsi", 50))
+        prediction_confidence = float(
+            analysis.get("prediction_confidence", 0)
+        )
 
         if trend >= 0.30:
             buy += 15
@@ -72,10 +82,44 @@ class SignalGenerator:
             sell += 8
 
         difference = buy - sell
-        if buy >= self.min_buy_score and difference >= self.min_buy_difference:
+        strong_call = (
+            buy >= self.min_buy_score
+            and difference >= self.min_buy_difference
+        )
+        strong_put = (
+            sell >= self.min_sell_score
+            and difference <= -self.min_buy_difference
+        )
+
+        # Scores in the 25-29 range were common in test #13. They are not
+        # promoted to trades by score alone: a near-threshold signal must
+        # agree with the market direction and have an independent predictor
+        # confidence confirmation.
+        near_call = (
+            buy >= self.near_threshold_score
+            and difference >= self.near_threshold_difference
+            and trend > 0
+            and momentum > 0
+            and prediction_confidence >= self.min_prediction_confidence
+            and not analysis.get("near_resistance", False)
+        )
+        near_put = (
+            sell >= self.near_threshold_score
+            and difference <= -self.near_threshold_difference
+            and trend < 0
+            and momentum < 0
+            and prediction_confidence >= self.min_prediction_confidence
+            and not analysis.get("near_support", False)
+        )
+
+        if strong_call or near_call:
             signal = "CALL"
-        elif sell >= self.min_sell_score and difference <= -self.min_buy_difference:
+            if near_call and not strong_call:
+                reasons.append("near-threshold confirmed by trend/momentum/predictor")
+        elif strong_put or near_put:
             signal = "PUT"
+            if near_put and not strong_put:
+                reasons.append("near-threshold confirmed by trend/momentum/predictor")
         else:
             signal = "HOLD"
 
