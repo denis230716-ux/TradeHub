@@ -49,3 +49,31 @@ def test_risk_manager():
     manager.record_result(-10)
     manager.record_result(-10)
     assert manager.allowed(signal) is False
+
+
+def test_signal_generator_confirms_near_threshold_signal():
+    generator = SignalGenerator()
+    result = generator.generate_signal(
+        "TEST",
+        {
+            "trend": 0.20,
+            "momentum": 0.20,
+            "rsi": 50,
+            "prediction_confidence": 70,
+        },
+    )
+    assert result.signal == "CALL"
+
+
+def test_signal_generator_rejects_unconfirmed_near_threshold_signal():
+    generator = SignalGenerator()
+    result = generator.generate_signal(
+        "TEST",
+        {
+            "trend": 0.20,
+            "momentum": -0.20,
+            "rsi": 50,
+            "prediction_confidence": 70,
+        },
+    )
+    assert result.signal == "HOLD"
