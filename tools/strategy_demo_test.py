@@ -18,7 +18,7 @@ async def main() -> None:
 
     asset = os.environ.get(
         "POCKET_OPTION_ASSET",
-        "EURJPY_otc",
+        "",
     )
 
     amount = float(
@@ -69,14 +69,18 @@ async def main() -> None:
     try:
         await market.connect()
 
-        await market.subscribe(
-            asset,
-            period=expiration,
-        )
+        assets = await market.available_assets(otc_only=True)
+        if asset and asset in assets:
+            assets = [asset] + [item for item in assets if item != asset]
+        if not assets:
+            raise RuntimeError("No available OTC assets found")
+
+        for candidate in assets:
+            await market.subscribe(candidate, period=expiration)
 
         print(
             "STRATEGY_TEST_START "
-            f"asset={asset} "
+            f"assets={len(assets)} "
             f"amount={amount} "
             f"expiration={expiration}s"
         )
