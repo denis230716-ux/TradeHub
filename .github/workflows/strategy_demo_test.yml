@@ -30,4 +30,24 @@ jobs:
           POCKET_OPTION_AMOUNT: "1"
           POCKET_OPTION_PERIOD: "5"
           POCKET_OPTION_STRATEGY_TIMEOUT: "21600"
-        run: python -m tools.strategy_demo_test
+        run: |
+          set -o pipefail
+          python -m tools.strategy_demo_test 2>&1 | tee strategy_demo_test.log
+
+      - name: Publish test summary
+        if: always()
+        run: |
+          {
+            echo "## TradeHub Strategy Demo Test"
+            echo '```text'
+            tail -n 80 strategy_demo_test.log || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload strategy demo log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: strategy-demo-test-log-${{ github.run_id }}
+          path: strategy_demo_test.log
+          retention-days: 14
