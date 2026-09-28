@@ -220,6 +220,20 @@ class PocketOptionMarketData(MarketDataProvider):
 
         return snapshots
 
+    async def available_assets(
+        self,
+        timeout: float = 20.0,
+        otc_only: bool = True,
+    ) -> list[str]:
+        if self.client is None:
+            raise RuntimeError(
+                "Pocket Option Demo auth frame is not configured"
+            )
+        assets = await self.client.available_assets(timeout=timeout)
+        if otc_only:
+            assets = [asset for asset in assets if asset.endswith("_otc")]
+        return list(dict.fromkeys(assets))
+
     async def connect(self) -> None:
         if self.client is None:
             raise RuntimeError("Pocket Option Demo auth frame is not configured")
