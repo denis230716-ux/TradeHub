@@ -257,6 +257,11 @@ class PocketOptionMarketData(MarketDataProvider):
                     yield snapshot
 
             if self.client.disconnected.is_set():
+                reason = self.client.disconnect_reason
+                if reason:
+                    raise RuntimeError(
+                        f"Pocket Option WebSocket disconnected: {reason}"
+                    )
                 break
             if not progressed:
                 await asyncio.sleep(0.1)
