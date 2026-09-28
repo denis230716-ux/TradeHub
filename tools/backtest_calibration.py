@@ -174,33 +174,33 @@ async def collect_full_history(
 
             if isinstance(candles, list):
                 for row in candles:
-                if not isinstance(row, (list, tuple)) or len(row) < 5:
-                    continue
-                try:
-                    timestamp = int(float(row[0]))
-                    open_price = float(row[1])
-                    close_price = float(row[2])
-                    high_price = float(row[3])
-                    low_price = float(row[4])
-                    volume = float(row[5]) if len(row) > 5 else 0.0
-                except (TypeError, ValueError):
-                    continue
-                if min(open_price, close_price, high_price, low_price) <= 0:
-                    continue
-                if high_price < max(open_price, close_price):
-                    continue
-                if low_price > min(open_price, close_price):
-                    continue
-                if volume < 0:
-                    continue
-                candles_by_timestamp[timestamp] = {
-                    "timestamp": timestamp,
-                    "open": open_price,
-                    "close": close_price,
-                    "high": high_price,
-                    "low": low_price,
-                    "volume": volume,
-                }
+                    if not isinstance(row, (list, tuple)) or len(row) < 5:
+                        continue
+                    try:
+                        timestamp = int(float(row[0]))
+                        open_price = float(row[1])
+                        close_price = float(row[2])
+                        high_price = float(row[3])
+                        low_price = float(row[4])
+                        volume = float(row[5]) if len(row) > 5 else 0.0
+                    except (TypeError, ValueError):
+                        continue
+                    if min(open_price, close_price, high_price, low_price) <= 0:
+                        continue
+                    if high_price < max(open_price, close_price):
+                        continue
+                    if low_price > min(open_price, close_price):
+                        continue
+                    if volume < 0:
+                        continue
+                    candles_by_timestamp[timestamp] = {
+                        "timestamp": timestamp,
+                        "open": open_price,
+                        "close": close_price,
+                        "high": high_price,
+                        "low": low_price,
+                        "volume": volume,
+                    }
 
             if isinstance(history, list):
                 for row in history:
