@@ -9,7 +9,7 @@ permissions:
 jobs:
   strategy-demo-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 360
 
     steps:
       - name: Checkout
@@ -29,6 +29,5 @@ jobs:
           POCKET_OPTION_ASSET: EURJPY_otc
           POCKET_OPTION_AMOUNT: "1"
           POCKET_OPTION_PERIOD: "5"
-          POCKET_OPTION_STRATEGY_TIMEOUT: "30"
-          POCKET_OPTION_MAX_ORDERS: "1"
+          POCKET_OPTION_STRATEGY_TIMEOUT: "21600"
         run: python -m tools.strategy_demo_test
