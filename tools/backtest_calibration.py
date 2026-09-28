@@ -278,11 +278,15 @@ async def main() -> None:
 
         closes = [c["close"] for c in candles]
         samples = build_samples(candles, asset)
-        split_index = int(len(candles) * 0.60)
+
+        # 50/25/25 chronological split:
+        # train selects parameters, validation ranks them, holdout is untouched.
+        train_end = int(len(candles) * 0.50)
+        validation_end = int(len(candles) * 0.75)
 
         print(
             f"DATA candles={len(candles)} samples={len(samples)} "
-            f"split={split_index}"
+            f"train_end={train_end} validation_end={validation_end}"
         )
         print(
             f"DATA_RANGE first={candles[0]['timestamp']} "
@@ -296,19 +300,25 @@ async def main() -> None:
         )
 
         current_train = evaluate_config(
-            samples, closes, 20, split_index,
+            samples, closes, 20, train_end,
             55, 55, 20, 0.10, horizon
         )
-        current_val = evaluate_config(
-            samples, closes, split_index, len(candles) - horizon,
+        current_validation = evaluate_config(
+            samples, closes, train_end, validation_end,
+            55, 55, 20, 0.10, horizon
+        )
+        current_holdout = evaluate_config(
+            samples, closes, validation_end, len(candles) - horizon,
             55, 55, 20, 0.10, horizon
         )
         print(
             "CURRENT_RESULT "
             f"train_signals={current_train.signals} "
             f"train_win_rate={current_train.win_rate:.2f}% "
-            f"validation_signals={current_val.signals} "
-            f"validation_win_rate={current_val.win_rate:.2f}%"
+            f"validation_signals={current_validation.signals} "
+            f"validation_win_rate={current_validation.win_rate:.2f}% "
+            f"holdout_signals={current_holdout.signals} "
+            f"holdout_win_rate={current_holdout.win_rate:.2f}%"
         )
 
         candidates = []
@@ -316,11 +326,11 @@ async def main() -> None:
             for difference in (0, 5, 10, 15, 20):
                 for guard in (0.0, 0.02, 0.05, 0.10):
                     train = evaluate_config(
-                        samples, closes, 20, split_index,
+                        samples, closes, 20, train_end,
                         threshold, threshold, difference, guard, horizon
                     )
                     validation = evaluate_config(
-                        samples, closes, split_index, len(candles) - horizon,
+                        samples, closes, train_end, validation_end,
                         threshold, threshold, difference, guard, horizon
                     )
                     if train.signals < 10 or validation.signals < 10:
@@ -363,24 +373,39 @@ async def main() -> None:
                     train,
                     validation,
                 ) = item
+                holdout = evaluate_config(
+                    samples, closes, validation_end, len(candles) - horizon,
+                    threshold, threshold, difference, guard, horizon
+                )
                 print(
                     f"CANDIDATE rank={rank} score={threshold} "
                     f"diff={difference} guard={guard:.3f}% "
                     f"train={train.signals}/{train_rate:.2f}% "
-                    f"validation={validation.signals}/{val_rate:.2f}%"
+                    f"validation={validation.signals}/{val_rate:.2f}% "
+                    f"holdout={holdout.signals}/{holdout.win_rate:.2f}%"
                 )
 
-        for test_horizon in (1, 3):
-            current = evaluate_config(
-                samples, closes, split_index, len(candles) - test_horizon,
-                55, 55, 20, 0.10, test_horizon
-            )
-            print(
-                f"ROBUSTNESS horizon={test_horizon} "
-                f"seconds={test_horizon * period} "
-                f"validation_signals={current.signals} "
-                f"validation_win_rate={current.win_rate:.2f}%"
-            )
+        # Robustness is evaluated on the holdout using the best candidate
+        # from validation, not the unchanged current configuration.
+        if candidates:
+            best = candidates[0]
+            _, _, _, threshold, difference, guard, _, _ = best
+            for test_horizon in (1, 3):
+                robust = evaluate_config(
+                    samples, closes, validation_end,
+                    len(candles) - test_horizon,
+                    threshold, threshold, difference, guard, test_horizon
+                )
+                print(
+                    f"ROBUSTNESS horizon={test_horizon} "
+                    f"seconds={test_horizon * period} "
+                    f"holdout_signals={robust.signals} "
+                    f"holdout_win_rate={robust.win_rate:.2f}% "
+                    f"score={threshold} diff={difference} "
+                    f"guard={guard:.3f}%"
+                )
+        else:
+            print("ROBUSTNESS skipped=no_valid_candidates")
 
         print("BACKTEST_COMPLETED no_orders=true")
     finally:
