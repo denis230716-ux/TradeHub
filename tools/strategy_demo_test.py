@@ -170,7 +170,6 @@ async def main() -> None:
 
             if result.accepted:
                 orders += 1
-                break
 
         print(
             "STRATEGY_TEST_COMPLETED "
