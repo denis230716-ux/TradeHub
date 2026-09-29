@@ -32,4 +32,14 @@ jobs:
           POCKET_OPTION_PERIOD: "5"
           POCKET_OPTION_BACKTEST_TIMEOUT: "300"
           POCKET_OPTION_BACKTEST_HORIZON: ${{ inputs.horizon }}
-        run: python -m tools.rolling_validation
+        run: |
+          set -o pipefail
+          python -m tools.rolling_validation 2>&1 | tee rolling_validation.log
+
+      - name: Upload rolling validation log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rolling-validation-log-${{ github.run_id }}
+          path: rolling_validation.log
+          retention-days: 14
