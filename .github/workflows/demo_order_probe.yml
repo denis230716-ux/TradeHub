@@ -29,4 +29,14 @@ jobs:
           POCKET_OPTION_ASSET: EURJPY_otc
           POCKET_OPTION_AMOUNT: "1"
           POCKET_OPTION_PERIOD: "5"
-        run: python -m tools.demo_order_probe
+        run: |
+          set -o pipefail
+          python -m tools.demo_order_probe 2>&1 | tee demo_order_probe.log
+
+      - name: Upload demo order probe log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-order-probe-log-${{ github.run_id }}
+          path: demo_order_probe.log
+          retention-days: 14
