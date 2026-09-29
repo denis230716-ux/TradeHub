@@ -32,4 +32,14 @@ jobs:
           POCKET_OPTION_PERIOD: "5"
           POCKET_OPTION_BACKTEST_TIMEOUT: "300"
           POCKET_OPTION_BACKTEST_HORIZON: ${{ inputs.horizon }}
-        run: python -m tools.backtest_calibration
+        run: |
+          set -o pipefail
+          python -m tools.backtest_calibration 2>&1 | tee backtest_calibration.log
+
+      - name: Upload backtest-calibration log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-calibration-log-${{ github.run_id }}
+          path: backtest_calibration.log
+          retention-days: 14
