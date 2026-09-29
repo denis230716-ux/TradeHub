@@ -239,6 +239,11 @@ class PocketOptionMarketData(MarketDataProvider):
             raise RuntimeError("Pocket Option Demo auth frame is not configured")
         await self.client.connect()
 
+    async def subscribe_signals(self) -> None:
+        if self.client is None:
+            raise RuntimeError("Pocket Option Demo auth frame is not configured")
+        await self.client.subscribe_signals()
+
     async def subscribe(self, asset: str, period: int = 5) -> None:
         if self.client is None:
             raise RuntimeError("Pocket Option Demo auth frame is not configured")
