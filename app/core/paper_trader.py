@@ -9,6 +9,7 @@ from typing import Any
 from app.core.models import MarketSnapshot, Signal, TradeResult, TradeRequest
 from app.core.pipeline import TradeHubPipeline
 from app.execution.executor import DryRunExecutor, TradeExecutor
+from app.external_signals.pocket_signals import ExternalSignalSynchronizer
 
 
 @dataclass(slots=True)
@@ -34,6 +35,7 @@ class DemoPaperTrader:
         expiration_seconds: int = 5,
         history_size: int = 120,
         cooldown_seconds: int = 15,
+        external_synchronizer: ExternalSignalSynchronizer | None = None,
     ):
         self.pipeline = pipeline or TradeHubPipeline()
         self.executor = executor or DryRunExecutor()
@@ -51,6 +53,7 @@ class DemoPaperTrader:
         self.sequence = 0
         self.cooldown_seconds = max(0, int(cooldown_seconds))
         self._cooldown_until: dict[str, float] = {}
+        self.external_synchronizer = external_synchronizer
 
     def ingest(self, snapshot: MarketSnapshot) -> None:
         self.history[snapshot.asset].append(snapshot.price)
@@ -117,8 +120,24 @@ class DemoPaperTrader:
                     signal.asset, 0.0
                 )
                 asset_diagnostics["cooldown_active"] = cooldown_active
-                if not cooldown_active:
-                    candidates.append(signal)
+                if cooldown_active:
+                    continue
+
+                if self.external_synchronizer is not None:
+                    match = self.external_synchronizer.compare(
+                        signal.asset,
+                        signal.direction,
+                    )
+                    asset_diagnostics["external_signal"] = (
+                        match.external.direction if match else "NONE"
+                    )
+                    asset_diagnostics["external_match"] = (
+                        match.matched if match else False
+                    )
+                    if match is None or not match.matched:
+                        continue
+
+                candidates.append(signal)
 
         selected = (
             max(candidates, key=lambda signal: signal.confidence)
@@ -137,6 +156,8 @@ class DemoPaperTrader:
         result = await self.executor.execute(request)
 
         if result.accepted:
+            if self.external_synchronizer is not None:
+                self.external_synchronizer.consume(signal.asset)
             self._cooldown_until[signal.asset] = (
                 monotonic() + self.cooldown_seconds
             )
