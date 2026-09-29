@@ -35,6 +35,7 @@ class PocketOptionSocketIO:
         self.stream_updates: list[Any] = []
         self.history_updates: list[Any] = []
         self.chart_updates: list[Any] = []
+        self.signal_updates: list[dict[str, Any]] = []
         self._reader_task: asyncio.Task[None] | None = None
         self.order_events: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
         self.disconnect_reason: str | None = None
@@ -119,6 +120,8 @@ class PocketOptionSocketIO:
             self.history_updates.append(data)
         elif event == "updateCharts":
             self.chart_updates.append(data)
+        elif event.startswith("signal") or event.startswith("signals"):
+            self.signal_updates.append({"event": event, "data": data})
         elif event in {"successopenOrder", "failopenOrder"}:
             self.order_events.put_nowait((event, data))
 
@@ -152,6 +155,8 @@ class PocketOptionSocketIO:
                 self.history_updates.append(data)
             elif event == "updateCharts":
                 self.chart_updates.append(data)
+            elif event.startswith("signal") or event.startswith("signals"):
+                self.signal_updates.append({"event": event, "data": data})
             elif event in {"successopenOrder", "failopenOrder"}:
                 self.order_events.put_nowait((event, data))
         except (asyncio.TimeoutError, json.JSONDecodeError, IndexError):
@@ -240,6 +245,12 @@ class PocketOptionSocketIO:
         await self.ws.send(
             "42" + json.dumps(["subfor", asset], separators=(",", ":"))
         )
+
+    async def subscribe_signals(self) -> None:
+        """Subscribe to the Pocket Option Signals stream without placing orders."""
+        if self.ws is None:
+            raise RuntimeError("Pocket Option WebSocket is not connected")
+        await self.ws.send('42["signals/subscribe"]')
 
     async def open_order(
         self,
