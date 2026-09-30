@@ -25,12 +25,14 @@ class PocketOptionMarketData(MarketDataProvider):
         session: str | None = None,
         token: str | None = None,
         client: PocketOptionSocketIO | None = None,
+        stale_timeout: float = 30.0,
     ) -> None:
         self.session = session
         self.token = token
         self.client = client or (
             PocketOptionSocketIO(session) if session else None
         )
+        self.stale_timeout = max(1.0, float(stale_timeout))
 
     @staticmethod
     def _timestamp(value: Any) -> float | None:
@@ -256,7 +258,10 @@ class PocketOptionMarketData(MarketDataProvider):
 
         history_index = 0
         stream_index = 0
-        deadline = asyncio.get_running_loop().time() + timeout
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        last_fresh_update = loop.time()
+        last_stream_signature: dict[str, tuple[float, float]] = {}
 
         while asyncio.get_running_loop().time() < deadline:
             progressed = False
@@ -273,6 +278,14 @@ class PocketOptionMarketData(MarketDataProvider):
                 stream_index += 1
                 progressed = True
                 for snapshot in self.decode_stream_update(update):
+                    signature = (
+                        snapshot.timestamp.timestamp(),
+                        snapshot.price,
+                    )
+                    if last_stream_signature.get(snapshot.asset) == signature:
+                        continue
+                    last_stream_signature[snapshot.asset] = signature
+                    last_fresh_update = loop.time()
                     yield snapshot
 
             if self.client.disconnected.is_set():
@@ -283,6 +296,10 @@ class PocketOptionMarketData(MarketDataProvider):
                     )
                 break
             if not progressed:
+                if loop.time() - last_fresh_update >= self.stale_timeout:
+                    raise RuntimeError(
+                        "Pocket Option market data became stale; reconnect required"
+                    )
                 await asyncio.sleep(0.1)
 
     async def close(self) -> None:
