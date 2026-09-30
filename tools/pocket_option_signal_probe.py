@@ -66,4 +66,56 @@ async def main() -> None:
 
     client = PocketOptionSocketIO(ssid)
 
-    print("SIGNAL_PRO
+    print("SIGNAL_PROBE mode=DEMO_ONLY orders=DISABLED")
+    print(f"SIGNAL_PROBE timeout={timeout:g}s")
+
+    await client.connect()
+
+    try:
+        print("SIGNAL_PROBE connected=true")
+
+        await client.subscribe_signals()
+
+        print('SIGNAL_PROBE subscribed="signals/subscribe"')
+
+        deadline = time.monotonic() + timeout
+        seen = 0
+
+        while time.monotonic() < deadline:
+            while seen < len(client.signal_updates):
+                update = client.signal_updates[seen]
+                seen += 1
+
+                print(
+                    "SIGNAL_EVENT "
+                    + json.dumps(
+                        {
+                            "event": update.get("event"),
+                            "data": compact_signal(update.get("data")),
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                )
+
+            if client.disconnected.is_set():
+                raise RuntimeError(
+                    f"WebSocket disconnected: "
+                    f"{client.disconnect_reason or 'unknown'}"
+                )
+
+            await asyncio.sleep(0.25)
+
+        print(f"SIGNAL_PROBE_COMPLETED events={seen}")
+
+        print(
+            "SIGNAL_PROBE_EVENT_NAMES="
+            + ",".join(client.events)
+        )
+
+    finally:
+        await client.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
