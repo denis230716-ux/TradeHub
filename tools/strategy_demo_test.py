@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-import time
 
 from app.core.paper_trader import DemoPaperTrader
 from app.execution.executor import PocketOptionDemoExecutor
