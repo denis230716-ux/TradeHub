@@ -40,3 +40,16 @@ def test_compact_signal_is_json_serializable():
     json.dumps(result)
 
     assert result["length"] == 2
+
+
+def test_compact_signal_exposes_nested_signal_payload():
+    result = compact_signal(
+        {
+            "signals": [{"asset": "CSCO_otc", "direction": "CALL", "time": 123}],
+            "times": [123],
+        }
+    )
+
+    assert result["signals"]["length"] == 1
+    assert result["signals"]["sample"][0]["asset"] == "CSCO_otc"
+    assert result["signals"]["sample"][0]["direction"] == "CALL"
