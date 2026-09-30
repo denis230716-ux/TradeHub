@@ -9,7 +9,7 @@ from typing import Any
 from app.broker.pocket_option_socketio import PocketOptionSocketIO
 
 
-def compact_signal(data: Any) -> dict[str, Any]:
+def compact_signal(data: Any, depth: int = 0) -> dict[str, Any] | list[Any]:
     if isinstance(data, dict):
         fields = (
             "asset",
@@ -33,16 +33,34 @@ def compact_signal(data: Any) -> dict[str, Any]:
             if key in data
         }
 
-        return result or {
+        nested_keys = ("signals", "times")
+        if depth < 2:
+            for key in nested_keys:
+                if key in data:
+                    result[key] = compact_signal(data[key], depth + 1)
+
+        if result:
+            return result
+
+        return {
             "data_type": "dict",
             "keys": sorted(data),
         }
 
     if isinstance(data, list):
+        sample = data[:8]
+        if depth < 2:
+            sample = [
+                compact_signal(item, depth + 1)
+                if isinstance(item, (dict, list))
+                else item
+                for item in sample
+            ]
+
         return {
             "data_type": "list",
             "length": len(data),
-            "sample": data[:8],
+            "sample": sample,
         }
 
     return {
@@ -99,10 +117,13 @@ async def main() -> None:
                 )
 
             if client.disconnected.is_set():
-                raise RuntimeError(
-                    f"WebSocket disconnected: "
-                    f"{client.disconnect_reason or 'unknown'}"
-                )
+                reason = client.disconnect_reason or "unknown"
+                print(f"SIGNAL_PROBE_DISCONNECTED reason={reason}")
+                if seen == 0:
+                    raise RuntimeError(
+                        f"WebSocket disconnected before any signal event: {reason}"
+                    )
+                break
 
             await asyncio.sleep(0.25)
 
