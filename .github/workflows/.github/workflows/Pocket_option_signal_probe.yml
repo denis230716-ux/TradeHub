@@ -1,0 +1,45 @@
+name: Pocket Option Signal Probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      timeout:
+        description: "Seconds to listen for Pocket Option signal events"
+        required: false
+        default: "300"
+
+permissions:
+  contents: read
+
+jobs:
+  signal-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Signal Probe
+        env:
+          POCKET_OPTION_SSID: ${{ secrets.POCKET_OPTION_SSID }}
+          POCKET_OPTION_SIGNAL_PROBE_TIMEOUT: ${{ inputs.timeout }}
+        run: |
+          set -o pipefail
+          python -m tools.pocket_option_signal_probe 2>&1 | tee pocket_option_signal_probe.log
+
+      - name: Upload signal probe log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pocket-option-signal-probe-${{ github.run_id }}
+          path: pocket_option_signal_probe.log
+          retention-days: 14
