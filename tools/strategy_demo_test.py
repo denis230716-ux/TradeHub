@@ -43,6 +43,11 @@ async def main() -> None:
         )
     )
 
+    evaluation_interval = max(
+        1,
+        int(os.environ.get("POCKET_OPTION_EVALUATION_INTERVAL", "5")),
+    )
+
 
     trader = None
     market = None
@@ -99,7 +104,7 @@ async def main() -> None:
                     if snapshots < 21:
                         continue
 
-                    if snapshots % 10 != 0:
+                    if snapshots % evaluation_interval != 0:
                         continue
 
                     evaluations += 1
