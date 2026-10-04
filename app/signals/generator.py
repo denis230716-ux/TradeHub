@@ -24,9 +24,9 @@ class SignalGenerator:
         self.min_buy_score = float(config.get("min_buy_score", 30))
         self.min_buy_difference = float(config.get("min_buy_difference", 10))
         self.min_sell_score = float(config.get("min_sell_score", 30))
-        self.near_threshold_score = float(config.get("near_threshold_score", 25))
+        self.near_threshold_score = float(config.get("near_threshold_score", 23))
         self.near_threshold_difference = float(
-            config.get("near_threshold_difference", 6)
+            config.get("near_threshold_difference", 4)
         )
         self.min_prediction_confidence = float(
             config.get("min_prediction_confidence", 55)
