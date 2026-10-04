@@ -3,15 +3,19 @@ name: TradeHub Strategy Demo Test
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 */12 * * *"
+    - cron: "0 */6 5-12 10 *"
 
 permissions:
   contents: read
 
+concurrency:
+  group: tradehub-demo-week
+  cancel-in-progress: false
+
 jobs:
   strategy-demo-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 720
+    timeout-minutes: 350
 
     steps:
       - name: Checkout
@@ -31,7 +35,8 @@ jobs:
           POCKET_OPTION_ASSET: EURJPY_otc
           POCKET_OPTION_AMOUNT: "1"
           POCKET_OPTION_PERIOD: "5"
-          POCKET_OPTION_STRATEGY_TIMEOUT: "43200"
+          POCKET_OPTION_STRATEGY_TIMEOUT: "21000"
+          POCKET_OPTION_RUN_UNTIL: "2026-10-12T00:00:00+00:00"
         run: |
           set -o pipefail
           python -m tools.strategy_demo_test 2>&1 | tee strategy_demo_test.log
