@@ -31,8 +31,12 @@ class DemoPaperTrader:
         self,
         pipeline: TradeHubPipeline | None = None,
         executor: TradeExecutor | None = None,
-        amount: float = 100.0,
+        amount: float = 1.0,
         expiration_seconds: int = 5,
+        starting_balance: float = 921.15,
+        base_risk_percent: float = 0.5,
+        strong_risk_percent: float = 0.75,
+        max_risk_percent: float = 1.0,
         history_size: int = 120,
         cooldown_seconds: int = 5,
         external_synchronizer: ExternalSignalSynchronizer | None = None,
@@ -40,6 +44,10 @@ class DemoPaperTrader:
         self.pipeline = pipeline or TradeHubPipeline()
         self.executor = executor or DryRunExecutor()
         self.amount = float(amount)
+        self.starting_balance = max(1.0, float(starting_balance))
+        self.base_risk_percent = max(0.0, float(base_risk_percent))
+        self.strong_risk_percent = max(self.base_risk_percent, float(strong_risk_percent))
+        self.max_risk_percent = max(self.strong_risk_percent, float(max_risk_percent))
         self.expiration_seconds = int(expiration_seconds)
         self.history: dict[str, deque[float]] = defaultdict(
             lambda: deque(maxlen=history_size)
@@ -146,11 +154,25 @@ class DemoPaperTrader:
         )
         return selected, diagnostics
 
+    def amount_for_signal(self, signal: Signal) -> float:
+        """Choose stake from signal quality, capped by configured risk."""
+        confidence = float(signal.confidence)
+        if confidence >= 80.0:
+            risk_percent = self.max_risk_percent
+        elif confidence >= 70.0:
+            risk_percent = self.strong_risk_percent
+        else:
+            risk_percent = self.base_risk_percent
+
+        risk_amount = self.starting_balance * risk_percent / 100.0
+        return max(1.0, min(risk_amount, self.starting_balance * self.max_risk_percent / 100.0))
+
     async def open_trade(self, signal: Signal, price: float) -> TradeResult:
+        amount = self.amount_for_signal(signal)
         request = TradeRequest(
             asset=signal.asset,
             direction=signal.direction,
-            amount=self.amount,
+            amount=amount,
             expiration_seconds=self.expiration_seconds,
         )
         result = await self.executor.execute(request)
