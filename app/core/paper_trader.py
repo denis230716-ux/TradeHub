@@ -34,7 +34,7 @@ class DemoPaperTrader:
         amount: float = 100.0,
         expiration_seconds: int = 5,
         history_size: int = 120,
-        cooldown_seconds: int = 15,
+        cooldown_seconds: int = 5,
         external_synchronizer: ExternalSignalSynchronizer | None = None,
     ):
         self.pipeline = pipeline or TradeHubPipeline()
