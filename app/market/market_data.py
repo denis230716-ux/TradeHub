@@ -251,6 +251,20 @@ class PocketOptionMarketData(MarketDataProvider):
             raise RuntimeError("Pocket Option Demo auth frame is not configured")
         await self.client.subscribe(asset, period=period)
 
+    async def subscribe_assets(
+        self,
+        assets: list[str],
+        period: int = 5,
+        active_asset: str | None = None,
+    ) -> None:
+        if self.client is None:
+            raise RuntimeError("Pocket Option Demo auth frame is not configured")
+        await self.client.subscribe_assets(
+            assets,
+            period=period,
+            active_asset=active_asset,
+        )
+
     async def stream(self, timeout: float = 30.0):
         """Yield verified history candles first, then realtime Demo ticks."""
         if self.client is None:
