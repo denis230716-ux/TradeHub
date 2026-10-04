@@ -230,8 +230,15 @@ class PocketOptionSocketIO:
         return list(self.assets)
 
     async def subscribe(self, asset: str, period: int = 60) -> None:
+        """Subscribe one asset and make it the active chart asset."""
         if self.ws is None:
             raise RuntimeError("Pocket Option WebSocket is not connected")
+        await self.ws.send(
+            "42" + json.dumps(["subscribeSymbol", asset], separators=(",", ":"))
+        )
+        await self.ws.send(
+            "42" + json.dumps(["subfor", asset], separators=(",", ":"))
+        )
         await self.ws.send(
             "42"
             + json.dumps(
@@ -239,11 +246,47 @@ class PocketOptionSocketIO:
                 separators=(",", ":"),
             )
         )
+
+    async def subscribe_assets(
+        self,
+        assets: list[str],
+        *,
+        period: int = 60,
+        active_asset: str | None = None,
+    ) -> None:
+        """Subscribe the whole realtime universe without changing the chart per asset.
+
+        Pocket Option exposes subscribeSymbol as the realtime subscription and
+        changeSymbol as the active chart/timeframe selection. Sending
+        changeSymbol once per asset can leave the stream effectively focused on
+        only the last few assets, so bulk subscription keeps the realtime
+        subscriptions separate from the single active chart.
+        """
+        if self.ws is None:
+            raise RuntimeError("Pocket Option WebSocket is not connected")
+        unique_assets = list(dict.fromkeys(asset.strip() for asset in assets if asset.strip()))
+        if not unique_assets:
+            raise ValueError("assets must contain at least one symbol")
+
+        for candidate in unique_assets:
+            await self.ws.send(
+                "42"
+                + json.dumps(
+                    ["subscribeSymbol", candidate],
+                    separators=(",", ":"),
+                )
+            )
+            await self.ws.send(
+                "42" + json.dumps(["subfor", candidate], separators=(",", ":"))
+            )
+
+        selected = active_asset if active_asset in unique_assets else unique_assets[0]
         await self.ws.send(
-            "42" + json.dumps(["subscribeSymbol", asset], separators=(",", ":"))
-        )
-        await self.ws.send(
-            "42" + json.dumps(["subfor", asset], separators=(",", ":"))
+            "42"
+            + json.dumps(
+                ["changeSymbol", {"asset": selected, "period": period}],
+                separators=(",", ":"),
+            )
         )
 
     async def subscribe_signals(self) -> None:
