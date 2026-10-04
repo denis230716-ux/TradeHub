@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from datetime import datetime, timezone
 
 from app.core.paper_trader import DemoPaperTrader
 from app.execution.executor import PocketOptionDemoExecutor
@@ -43,6 +44,18 @@ async def main() -> None:
         )
     )
 
+    run_until_raw = os.environ.get("POCKET_OPTION_RUN_UNTIL", "").strip()
+    run_until = None
+    if run_until_raw:
+        try:
+            run_until = datetime.fromisoformat(run_until_raw.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise RuntimeError(
+                "POCKET_OPTION_RUN_UNTIL must be ISO-8601"
+            ) from exc
+        if run_until.tzinfo is None:
+            run_until = run_until.replace(tzinfo=timezone.utc)
+
     evaluation_interval = max(
         1,
         int(os.environ.get("POCKET_OPTION_EVALUATION_INTERVAL", "5")),
@@ -52,6 +65,9 @@ async def main() -> None:
     trader = None
     market = None
     deadline = time.monotonic() + timeout
+    if run_until is not None:
+        remaining_until = (run_until - datetime.now(timezone.utc)).total_seconds()
+        deadline = min(deadline, time.monotonic() + max(0.0, remaining_until))
 
     async def connect_market() -> PocketOptionMarketData:
         new_market = PocketOptionMarketData(session=ssid)
@@ -86,7 +102,8 @@ async def main() -> None:
             "STRATEGY_TEST_START "
             f"timeout={timeout}s "
             f"amount={amount} "
-            f"expiration={expiration}s"
+            f"expiration={expiration}s "
+            f"run_until={run_until.isoformat() if run_until else \"none\"}"
         )
 
         print(
