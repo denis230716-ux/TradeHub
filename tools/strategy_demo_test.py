@@ -98,12 +98,13 @@ async def main() -> None:
             expiration_seconds=expiration,
         )
 
+        run_until_text = run_until.isoformat() if run_until else "none"
         print(
             "STRATEGY_TEST_START "
             f"timeout={timeout}s "
             f"amount={amount} "
             f"expiration={expiration}s "
-            f"run_until={run_until.isoformat() if run_until else \"none\"}"
+            f"run_until={run_until_text}"
         )
 
         print(
