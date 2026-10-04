@@ -82,8 +82,16 @@ async def main() -> None:
         if not assets:
             await new_market.close()
             raise RuntimeError("No available OTC assets found")
-        for candidate in assets:
-            await new_market.subscribe(candidate, period=expiration)
+        await new_market.subscribe_assets(
+            assets,
+            period=expiration,
+            active_asset=asset or assets[0],
+        )
+        print(
+            "MARKET_SUBSCRIPTIONS "
+            f"assets={len(assets)} "
+            f"active_asset={asset or assets[0]}"
+        )
         return new_market
 
     snapshots = 0
