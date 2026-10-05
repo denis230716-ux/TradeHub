@@ -105,7 +105,7 @@ def test_paper_trader_allows_signal_after_previous_same_candle_trade():
     )
 
     for i in range(21):
-        trader.ingest(candle_snapshot("EURUSD", 1.0 + i * 0.001, 1000.0))
+        trader.ingest(candle_snapshot("EURUSD", 1.0 + i * 0.001, 1000.0 + i))
 
     asyncio.run(
         trader.open_trade(
