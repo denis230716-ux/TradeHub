@@ -32,7 +32,7 @@ def test_signal_generator():
     generator = SignalGenerator({"min_buy_score": 20, "min_buy_difference": 10})
     result = generator.generate_signal(
         "TEST",
-        {"trend": 0.5, "momentum": 0.5, "rsi": 50},
+        {"trend": 0.5, "momentum": 0.5, "rsi": 50, "prediction_change": 0.2},
     )
     assert result.signal == "CALL"
 
