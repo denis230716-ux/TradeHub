@@ -99,10 +99,10 @@ class TradeHubPipeline:
         if generated.signal == "HOLD":
             return None
 
-        expected_move = abs(prediction_change)
-        guard = self.scalping_guard.evaluate(expected_move)
-        if not guard.allowed:
-            return None
+        # Pocket Option is a binary-direction contract: the outcome depends on
+        # direction at expiry, not on achieving a minimum percentage price move.
+        # The generic scalping guard is therefore not used as an entry veto here.
+        self.last_diagnostics["scalping_guard"] = "not_applicable_binary_option"
 
         signal = Signal(
             asset=asset,
