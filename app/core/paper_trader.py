@@ -61,6 +61,8 @@ class DemoPaperTrader:
         self.sequence = 0
         self.cooldown_seconds = max(0, int(cooldown_seconds))
         self._cooldown_until: dict[str, float] = {}
+        # Block repeated entries caused by multiple websocket updates of one candle.
+        self._last_trade_candle: dict[str, float] = {}
         self.external_synchronizer = external_synchronizer
 
     def ingest(self, snapshot: MarketSnapshot) -> None:
@@ -131,6 +133,14 @@ class DemoPaperTrader:
                 if cooldown_active:
                     continue
 
+                candle_timestamp = float(
+                    self._candle_timestamps[signal.asset][-1]
+                )
+                asset_diagnostics["signal_candle_timestamp"] = candle_timestamp
+                if self._last_trade_candle.get(signal.asset) == candle_timestamp:
+                    asset_diagnostics["same_candle_blocked"] = True
+                    continue
+
                 if self.external_synchronizer is not None:
                     match = self.external_synchronizer.compare(
                         signal.asset,
@@ -183,6 +193,10 @@ class DemoPaperTrader:
             self._cooldown_until[signal.asset] = (
                 monotonic() + self.cooldown_seconds
             )
+            if self._candle_timestamps[signal.asset]:
+                self._last_trade_candle[signal.asset] = self._candle_timestamps[
+                    signal.asset
+                ][-1]
 
         if result.accepted and isinstance(self.executor, DryRunExecutor):
             self.sequence += 1
