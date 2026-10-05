@@ -13,11 +13,7 @@ from app.strategy.scalping_guard import ScalpingGuard
 
 
 class TradeHubPipeline:
-    """Deterministic dry-run decision pipeline.
-
-    Strategy calculations use verified OHLCV candles when available.
-    Broker I/O is deliberately outside this class.
-    """
+    """Deterministic dry-run decision pipeline."""
 
     def __init__(
         self,
@@ -46,22 +42,24 @@ class TradeHubPipeline:
     ) -> Signal | None:
         if candles is None:
             if len(prices) < 21:
+                self.last_diagnostics = {"decision_stage": "INSUFFICIENT_HISTORY"}
                 return None
-
             volumes = volumes or [0.0] * len(prices)
             candles = [
                 {"close": price, "volume": volume}
                 for price, volume in zip(prices, volumes)
             ]
+        elif len(candles) < 21:
+            self.last_diagnostics = {"decision_stage": "INSUFFICIENT_HISTORY"}
+            return None
         else:
-            if len(candles) < 21:
-                return None
             prices = [float(candle["close"]) for candle in candles]
             volumes = [float(candle.get("volume", 0.0)) for candle in candles]
 
         market = self.market_analysis.analyze(candles)
         if not market.trading_allowed:
             self.last_diagnostics = {
+                "decision_stage": "MARKET_BLOCKED",
                 "market_state": market.state,
                 "market_volatility": market.volatility_percent,
                 "trading_allowed": market.trading_allowed,
@@ -87,6 +85,11 @@ class TradeHubPipeline:
         generated = self.signal_generator.generate_signal(asset, analysis)
         self.last_diagnostics = {
             **analysis,
+            "decision_stage": (
+                "GENERATOR_HOLD"
+                if generated.signal == "HOLD"
+                else "SIGNAL_GENERATED"
+            ),
             "market_state": market.state,
             "market_volatility": market.volatility_percent,
             "trading_allowed": market.trading_allowed,
@@ -99,10 +102,9 @@ class TradeHubPipeline:
         if generated.signal == "HOLD":
             return None
 
-        # Pocket Option is a binary-direction contract: the outcome depends on
-        # direction at expiry, not on achieving a minimum percentage price move.
-        # The generic scalping guard is therefore not used as an entry veto here.
-        self.last_diagnostics["scalping_guard"] = "not_applicable_binary_option"
+        self.last_diagnostics["scalping_guard"] = (
+            "not_applicable_binary_option"
+        )
 
         signal = Signal(
             asset=asset,
@@ -111,4 +113,11 @@ class TradeHubPipeline:
             timestamp=datetime.now(timezone.utc),
             reason="; ".join(generated.reasons),
         )
-        return signal if self.risk_manager.allowed(signal) else None
+        risk_allowed = self.risk_manager.allowed(signal)
+        self.last_diagnostics["risk_allowed"] = risk_allowed
+        if not risk_allowed:
+            self.last_diagnostics["decision_stage"] = "RISK_BLOCKED"
+            return None
+
+        self.last_diagnostics["decision_stage"] = "SIGNAL_READY"
+        return signal
