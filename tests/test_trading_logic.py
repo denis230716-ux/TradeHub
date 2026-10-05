@@ -79,3 +79,33 @@ def test_signal_generator_rejects_unconfirmed_near_threshold_signal():
         },
     )
     assert result.signal == "HOLD"
+
+
+def test_signal_generator_rejects_entry_against_predictor_direction():
+    generator = SignalGenerator()
+    result = generator.generate_signal(
+        "TEST",
+        {
+            "trend": 0.5,
+            "momentum": 0.5,
+            "rsi": 50,
+            "prediction_change": -0.2,
+            "prediction_confidence": 90,
+        },
+    )
+    assert result.signal == "HOLD"
+
+
+def test_signal_generator_accepts_entry_with_predictor_direction():
+    generator = SignalGenerator()
+    result = generator.generate_signal(
+        "TEST",
+        {
+            "trend": 0.5,
+            "momentum": 0.5,
+            "rsi": 50,
+            "prediction_change": 0.2,
+            "prediction_confidence": 90,
+        },
+    )
+    assert result.signal == "CALL"
