@@ -60,6 +60,7 @@ def test_signal_generator_confirms_near_threshold_signal():
             "momentum": 0.20,
             "near_support": True,
             "rsi": 50,
+            "prediction_change": 0.2,
             "prediction_confidence": 70,
         },
     )
