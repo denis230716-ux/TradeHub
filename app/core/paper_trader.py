@@ -46,8 +46,14 @@ class DemoPaperTrader:
         self.amount = float(amount)
         self.starting_balance = max(1.0, float(starting_balance))
         self.base_risk_percent = max(0.0, float(base_risk_percent))
-        self.strong_risk_percent = max(self.base_risk_percent, float(strong_risk_percent))
-        self.max_risk_percent = max(self.strong_risk_percent, float(max_risk_percent))
+        self.strong_risk_percent = max(
+            self.base_risk_percent,
+            float(strong_risk_percent),
+        )
+        self.max_risk_percent = max(
+            self.strong_risk_percent,
+            float(max_risk_percent),
+        )
         self.expiration_seconds = int(expiration_seconds)
         self.history: dict[str, deque[float]] = defaultdict(
             lambda: deque(maxlen=history_size)
@@ -61,8 +67,6 @@ class DemoPaperTrader:
         self.sequence = 0
         self.cooldown_seconds = max(0, int(cooldown_seconds))
         self._cooldown_until: dict[str, float] = {}
-        # Block repeated entries caused by multiple websocket updates of one candle.
-        self._last_trade_candle: dict[str, float] = {}
         self.external_synchronizer = external_synchronizer
 
     def ingest(self, snapshot: MarketSnapshot) -> None:
@@ -123,39 +127,45 @@ class DemoPaperTrader:
             asset_diagnostics = dict(self.pipeline.last_diagnostics)
             asset_diagnostics["asset"] = asset
             asset_diagnostics["candle_count"] = len(candles)
+            asset_diagnostics["entry_status"] = (
+                "SIGNAL_READY" if signal is not None else "PIPELINE_BLOCKED"
+            )
             diagnostics[asset] = asset_diagnostics
 
-            if signal is not None:
-                cooldown_active = monotonic() < self._cooldown_until.get(
-                    signal.asset, 0.0
-                )
-                asset_diagnostics["cooldown_active"] = cooldown_active
-                if cooldown_active:
-                    continue
+            if signal is None:
+                continue
 
-                candle_timestamp = float(
+            cooldown_active = monotonic() < self._cooldown_until.get(
+                signal.asset,
+                0.0,
+            )
+            asset_diagnostics["cooldown_active"] = cooldown_active
+            if cooldown_active:
+                asset_diagnostics["entry_status"] = "COOLDOWN"
+                continue
+
+            if self._candle_timestamps[signal.asset]:
+                asset_diagnostics["signal_candle_timestamp"] = float(
                     self._candle_timestamps[signal.asset][-1]
                 )
-                asset_diagnostics["signal_candle_timestamp"] = candle_timestamp
-                if self._last_trade_candle.get(signal.asset) == candle_timestamp:
-                    asset_diagnostics["same_candle_blocked"] = True
+
+            if self.external_synchronizer is not None:
+                match = self.external_synchronizer.compare(
+                    signal.asset,
+                    signal.direction,
+                )
+                asset_diagnostics["external_signal"] = (
+                    match.external.direction if match else "NONE"
+                )
+                asset_diagnostics["external_match"] = (
+                    match.matched if match else False
+                )
+                if match is None or not match.matched:
+                    asset_diagnostics["entry_status"] = "EXTERNAL_MISMATCH"
                     continue
 
-                if self.external_synchronizer is not None:
-                    match = self.external_synchronizer.compare(
-                        signal.asset,
-                        signal.direction,
-                    )
-                    asset_diagnostics["external_signal"] = (
-                        match.external.direction if match else "NONE"
-                    )
-                    asset_diagnostics["external_match"] = (
-                        match.matched if match else False
-                    )
-                    if match is None or not match.matched:
-                        continue
-
-                candidates.append(signal)
+            asset_diagnostics["entry_status"] = "READY"
+            candidates.append(signal)
 
         selected = (
             max(candidates, key=lambda signal: signal.confidence)
@@ -175,7 +185,13 @@ class DemoPaperTrader:
             risk_percent = self.base_risk_percent
 
         risk_amount = self.starting_balance * risk_percent / 100.0
-        return max(1.0, min(risk_amount, self.starting_balance * self.max_risk_percent / 100.0))
+        return max(
+            1.0,
+            min(
+                risk_amount,
+                self.starting_balance * self.max_risk_percent / 100.0,
+            ),
+        )
 
     async def open_trade(self, signal: Signal, price: float) -> TradeResult:
         amount = self.amount_for_signal(signal)
@@ -193,16 +209,13 @@ class DemoPaperTrader:
             self._cooldown_until[signal.asset] = (
                 monotonic() + self.cooldown_seconds
             )
-            if self._candle_timestamps[signal.asset]:
-                self._last_trade_candle[signal.asset] = self._candle_timestamps[
-                    signal.asset
-                ][-1]
 
         if result.accepted and isinstance(self.executor, DryRunExecutor):
             self.sequence += 1
             result.trade_id = f"DRY-{self.sequence:06d}"
             result.reason = (
-                f"simulation; entry={price}; confidence={signal.confidence:.1f}"
+                f"simulation; entry={price}; "
+                f"confidence={signal.confidence:.1f}"
             )
 
         return result
