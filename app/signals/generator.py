@@ -31,6 +31,9 @@ class SignalGenerator:
         self.min_prediction_confidence = float(
             config.get("min_prediction_confidence", 55)
         )
+        self.min_prediction_move_percent = float(
+            config.get("min_prediction_move_percent", 0.01)
+        )
         self.rsi_oversold = float(config.get("rsi_oversold", 35))
         self.rsi_overbought = float(config.get("rsi_overbought", 75))
 
@@ -113,19 +116,23 @@ class SignalGenerator:
             and not analysis.get("near_support", False)
         )
 
-        prediction_bullish = prediction_change > 0
-        prediction_bearish = prediction_change < 0
+        prediction_direction_is_meaningful = (
+            abs(prediction_change) >= self.min_prediction_move_percent
+        )
+        prediction_bullish = prediction_direction_is_meaningful and prediction_change > 0
+        prediction_bearish = prediction_direction_is_meaningful and prediction_change < 0
 
         # A score is not enough: the independent predictor must point in the
         # same direction. This prevents CALL/PUT entries against the forecast.
-        if strong_call and not prediction_bullish:
-            strong_call = False
-        if strong_put and not prediction_bearish:
-            strong_put = False
-        if near_call and not prediction_bullish:
-            near_call = False
-        if near_put and not prediction_bearish:
-            near_put = False
+        if prediction_direction_is_meaningful:
+            if strong_call and not prediction_bullish:
+                strong_call = False
+            if strong_put and not prediction_bearish:
+                strong_put = False
+            if near_call and not prediction_bullish:
+                near_call = False
+            if near_put and not prediction_bearish:
+                near_put = False
 
         if strong_call or near_call:
             signal = "CALL"
