@@ -43,6 +43,7 @@ class SignalGenerator:
         prediction_confidence = float(
             analysis.get("prediction_confidence", 0)
         )
+        prediction_change = float(analysis.get("prediction_change", 0))
 
         if trend >= 0.30:
             buy += 15
@@ -111,6 +112,20 @@ class SignalGenerator:
             and prediction_confidence >= self.min_prediction_confidence
             and not analysis.get("near_support", False)
         )
+
+        prediction_bullish = prediction_change > 0
+        prediction_bearish = prediction_change < 0
+
+        # A score is not enough: the independent predictor must point in the
+        # same direction. This prevents CALL/PUT entries against the forecast.
+        if strong_call and not prediction_bullish:
+            strong_call = False
+        if strong_put and not prediction_bearish:
+            strong_put = False
+        if near_call and not prediction_bullish:
+            near_call = False
+        if near_put and not prediction_bearish:
+            near_put = False
 
         if strong_call or near_call:
             signal = "CALL"
