@@ -1,8 +1,9 @@
 import asyncio
 from datetime import datetime, timezone
 
-from app.core.models import MarketSnapshot
+from app.core.models import MarketSnapshot, Signal
 from app.core.paper_trader import DemoPaperTrader
+from app.execution.executor import DryRunExecutor
 
 
 def snapshot(asset: str, price: float) -> MarketSnapshot:
@@ -12,6 +13,42 @@ def snapshot(asset: str, price: float) -> MarketSnapshot:
         timestamp=datetime.now(timezone.utc),
         features={},
     )
+
+
+def candle_snapshot(asset: str, price: float, timestamp: float) -> MarketSnapshot:
+    return MarketSnapshot(
+        asset=asset,
+        price=price,
+        timestamp=datetime.now(timezone.utc),
+        features={
+            "candle": {
+                "open": price,
+                "high": price,
+                "low": price,
+                "close": price,
+                "volume": 1.0,
+                "timestamp": timestamp,
+            }
+        },
+    )
+
+
+class AlwaysCallPipeline:
+    def __init__(self):
+        self.last_diagnostics = {
+            "signal": "CALL",
+            "signal_confidence": 80.0,
+            "decision_stage": "SIGNAL_READY",
+        }
+
+    def evaluate(self, asset, prices, candles=None):
+        return Signal(
+            asset=asset,
+            direction="CALL",
+            confidence=80.0,
+            timestamp=datetime.now(timezone.utc),
+            reason="test",
+        )
 
 
 def test_paper_trader_keeps_separate_history_per_asset():
@@ -33,7 +70,7 @@ def test_paper_trader_waits_for_enough_history():
 
 def test_paper_trade_never_leaves_dry_run():
     trader = DemoPaperTrader()
-    signal = __import__("app.core.models", fromlist=["Signal"]).Signal(
+    signal = Signal(
         asset="EURUSD",
         direction="CALL",
         confidence=80.0,
@@ -47,8 +84,6 @@ def test_paper_trade_never_leaves_dry_run():
 
 
 def test_paper_trader_adapts_stake_to_signal_confidence():
-    from app.core.models import Signal
-
     trader = DemoPaperTrader(starting_balance=921.15)
     now = datetime.now(timezone.utc)
 
@@ -60,3 +95,34 @@ def test_paper_trader_adapts_stake_to_signal_confidence():
     assert trader.amount_for_signal(strong) == 6.908625
     assert trader.amount_for_signal(max_signal) == 9.2115
     assert trader.amount_for_signal(max_signal) <= 921.15 * 0.01
+
+
+def test_paper_trader_allows_signal_after_previous_same_candle_trade():
+    trader = DemoPaperTrader(
+        pipeline=AlwaysCallPipeline(),
+        executor=DryRunExecutor(),
+        cooldown_seconds=0,
+    )
+
+    for i in range(21):
+        trader.ingest(candle_snapshot("EURUSD", 1.0 + i * 0.001, 1000.0))
+
+    asyncio.run(
+        trader.open_trade(
+            Signal(
+                "EURUSD",
+                "CALL",
+                80.0,
+                datetime.now(timezone.utc),
+                "test",
+            ),
+            1.02,
+        )
+    )
+
+    signal, diagnostics = trader.evaluate_with_diagnostics()
+
+    assert signal is not None
+    assert signal.direction == "CALL"
+    assert diagnostics["EURUSD"]["entry_status"] == "READY"
+    assert "same_candle_blocked" not in diagnostics["EURUSD"]
