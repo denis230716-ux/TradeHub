@@ -24,6 +24,22 @@ class PocketOptionDemoExecutor(TradeExecutor):
     def __init__(self, transport):
         self.transport = transport
 
+    @staticmethod
+    def _is_transport_failure(exc: Exception) -> bool:
+        message = str(exc).lower()
+        transport_markers = (
+            "1005",
+            "websocket",
+            "connection",
+            "disconnected",
+            "timed out",
+            "timeout",
+            "no status received",
+        )
+        return isinstance(exc, (ConnectionError, TimeoutError)) or any(
+            marker in message for marker in transport_markers
+        )
+
     async def execute(self, request: TradeRequest) -> TradeResult:
         if request.amount <= 0:
             return TradeResult(
@@ -45,6 +61,10 @@ class PocketOptionDemoExecutor(TradeExecutor):
                 expiration_seconds=request.expiration_seconds,
             )
         except Exception as exc:
+            if self._is_transport_failure(exc):
+                raise RuntimeError(
+                    f"Pocket Option transport failure: {exc}"
+                ) from exc
             return TradeResult(
                 accepted=False,
                 reason=str(exc),
