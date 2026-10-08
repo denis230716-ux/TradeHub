@@ -167,7 +167,18 @@ async def main() -> None:
                     )
 
                     selected_price = float(trader.history[signal.asset][-1])
-                    result = await trader.open_trade(signal, selected_price)
+                    try:
+                        result = await trader.open_trade(signal, selected_price)
+                    except RuntimeError as exc:
+                        print(f"ORDER_TRANSPORT_FAILURE reason={exc}")
+                        if market is not None:
+                            await market.close()
+                        if time.monotonic() >= deadline:
+                            break
+                        await asyncio.sleep(1)
+                        market = await connect_market()
+                        trader.executor = PocketOptionDemoExecutor(market.client)
+                        continue
                     print(
                         "ORDER_RESULT "
                         f"accepted={result.accepted} "
