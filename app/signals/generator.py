@@ -14,6 +14,7 @@ class SignalResult:
     momentum: float
     rsi: float
     reasons: List[str]
+    rejection_reasons: List[str]
 
 
 class SignalGenerator:
@@ -134,16 +135,45 @@ class SignalGenerator:
             if near_put and not prediction_bearish:
                 near_put = False
 
-        if strong_call or near_call:
+        rejection_reasons: List[str] = []
+        if not (strong_call or near_call or strong_put or near_put):
+            if buy >= self.near_threshold_score:
+                if difference < self.near_threshold_difference:
+                    rejection_reasons.append("CALL_SCORE_DIFFERENCE_TOO_SMALL")
+                if trend <= 0:
+                    rejection_reasons.append("CALL_TREND_NOT_BULLISH")
+                if momentum <= 0:
+                    rejection_reasons.append("CALL_MOMENTUM_NOT_BULLISH")
+                if prediction_confidence < self.min_prediction_confidence:
+                    rejection_reasons.append("CALL_PREDICTION_CONFIDENCE_LOW")
+                if analysis.get("near_resistance", False):
+                    rejection_reasons.append("CALL_NEAR_RESISTANCE")
+                if prediction_direction_is_meaningful and not prediction_bullish:
+                    rejection_reasons.append("CALL_PREDICTOR_DIRECTION_CONFLICT")
+            if sell >= self.near_threshold_score:
+                if difference > -self.near_threshold_difference:
+                    rejection_reasons.append("PUT_SCORE_DIFFERENCE_TOO_SMALL")
+                if trend >= 0:
+                    rejection_reasons.append("PUT_TREND_NOT_BEARISH")
+                if momentum >= 0:
+                    rejection_reasons.append("PUT_MOMENTUM_NOT_BEARISH")
+                if prediction_confidence < self.min_prediction_confidence:
+                    rejection_reasons.append("PUT_PREDICTION_CONFIDENCE_LOW")
+                if analysis.get("near_support", False):
+                    rejection_reasons.append("PUT_NEAR_SUPPORT")
+                if prediction_direction_is_meaningful and not prediction_bearish:
+                    rejection_reasons.append("PUT_PREDICTOR_DIRECTION_CONFLICT")
+            if not rejection_reasons:
+                rejection_reasons.append("SCORE_BELOW_ENTRY_THRESHOLD")
+            signal = "HOLD"
+        elif strong_call or near_call:
             signal = "CALL"
             if near_call and not strong_call:
                 reasons.append("near-threshold confirmed by trend/momentum/predictor")
-        elif strong_put or near_put:
+        else:
             signal = "PUT"
             if near_put and not strong_put:
                 reasons.append("near-threshold confirmed by trend/momentum/predictor")
-        else:
-            signal = "HOLD"
 
         total = max(buy, sell)
         confidence = min(100.0, total)
@@ -158,4 +188,5 @@ class SignalGenerator:
             momentum,
             rsi,
             reasons,
+            rejection_reasons,
         )
