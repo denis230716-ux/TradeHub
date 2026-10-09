@@ -125,3 +125,33 @@ def test_signal_generator_ignores_microscopic_predictor_noise():
         },
     )
     assert result.signal == "CALL"
+
+
+def test_signal_generator_reports_predictor_conflict_for_put_candidate():
+    generator = SignalGenerator()
+    result = generator.generate_signal(
+        "TEST",
+        {
+            "trend": -0.5,
+            "momentum": -0.5,
+            "rsi": 50,
+            "prediction_change": 0.2,
+            "prediction_confidence": 90,
+        },
+    )
+    assert result.signal == "HOLD"
+    assert "PUT_PREDICTOR_DIRECTION_CONFLICT" in result.rejection_reasons
+
+
+def test_signal_generator_reports_reasons_when_directional_score_is_insufficient():
+    result = SignalGenerator().generate_signal(
+        "TEST",
+        {
+            "trend": 0.1,
+            "momentum": 0.1,
+            "rsi": 50,
+            "prediction_confidence": 80,
+        },
+    )
+    assert result.signal == "HOLD"
+    assert result.rejection_reasons
