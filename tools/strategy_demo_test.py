@@ -34,9 +34,9 @@ async def main() -> None:
         if run_until.tzinfo is None:
             run_until = run_until.replace(tzinfo=timezone.utc)
 
-    evaluation_interval = max(
-        1,
-        int(os.environ.get("POCKET_OPTION_EVALUATION_INTERVAL", "5")),
+    evaluation_interval_seconds = max(
+        0.25,
+        float(os.environ.get("POCKET_OPTION_EVALUATION_INTERVAL_SECONDS", "1")),
     )
 
     market = None
@@ -76,6 +76,7 @@ async def main() -> None:
     snapshots = 0
     evaluations = 0
     orders = 0
+    next_evaluation_at = 0.0
 
     try:
         market = await connect_market()
@@ -98,8 +99,10 @@ async def main() -> None:
                 async for snapshot in market.stream(timeout=remaining):
                     trader.ingest(snapshot)
                     snapshots += 1
-                    if snapshots < 21 or snapshots % evaluation_interval:
+                    now = time.monotonic()
+                    if snapshots < 21 or now < next_evaluation_at:
                         continue
+                    next_evaluation_at = now + evaluation_interval_seconds
 
                     evaluations += 1
                     signal, diagnostics_by_asset = (
@@ -130,6 +133,7 @@ async def main() -> None:
                                 f"sell_score={float(diagnostics.get('sell_score', 0.0)):.1f} "
                                 f"prediction={float(diagnostics.get('prediction_change', 0.0)):.6f}% "
                                 f"prediction_confidence={float(diagnostics.get('prediction_confidence', 0.0)):.2f} "
+                                f"hold_reasons={diagnostics.get('signal_rejection_reasons', 'n/a')} "
                                 f"allowed={diagnostics.get('trading_allowed', False)}"
                             )
 
@@ -151,7 +155,16 @@ async def main() -> None:
                                     )
 
                     if signal is None:
-                        print("DECISION HOLD reason=conditions_not_met")
+                        reasons = sorted({
+                            str(item.get("signal_rejection_reasons", ""))
+                            for item in diagnostics_by_asset.values()
+                            if item.get("signal_rejection_reasons")
+                        })
+                        print(
+                            "DECISION HOLD "
+                            f"reason=conditions_not_met "
+                            f"candidate_rejections={'|'.join(reasons[:8]) or 'no_directional_candidate'}"
+                        )
                         continue
 
                     print(
