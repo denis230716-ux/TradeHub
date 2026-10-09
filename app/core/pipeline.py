@@ -97,6 +97,9 @@ class TradeHubPipeline:
             "sell_score": generated.sell_score,
             "signal": generated.signal,
             "signal_confidence": generated.confidence,
+            "signal_rejection_reasons": ",".join(
+                generated.rejection_reasons
+            ),
         }
 
         if generated.signal == "HOLD":
