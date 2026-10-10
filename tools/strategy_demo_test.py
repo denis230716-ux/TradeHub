@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from collections import Counter
 from datetime import datetime, timezone
 
 from app.core.paper_trader import DemoPaperTrader
@@ -78,6 +79,10 @@ async def main() -> None:
     evaluations = 0
     orders = 0
     next_evaluation_at = 0.0
+    asset_evaluation_counts: Counter[str] = Counter()
+    asset_signal_counts: Counter[str] = Counter()
+    rejection_counts: Counter[str] = Counter()
+    decision_stage_counts: Counter[str] = Counter()
     outcome_tracker = DemoOutcomeTracker(
         payout_rate=float(os.environ.get("POCKET_OPTION_PAYOUT_RATE", "0.92"))
     )
@@ -118,6 +123,18 @@ async def main() -> None:
                     signal, diagnostics_by_asset = (
                         trader.evaluate_with_diagnostics()
                     )
+                    for item in diagnostics_by_asset.values():
+                        name = str(item.get("asset", "unknown"))
+                        asset_evaluation_counts[name] += 1
+                        if item.get("signal") in {"CALL", "PUT"}:
+                            asset_signal_counts[name] += 1
+                        stage = str(item.get("decision_stage", "unknown"))
+                        decision_stage_counts[stage] += 1
+                        raw_reasons = item.get("signal_rejection_reasons", [])
+                        if isinstance(raw_reasons, str):
+                            raw_reasons = [part for part in raw_reasons.replace(",", "|").split("|") if part]
+                        if isinstance(raw_reasons, (list, tuple, set)):
+                            rejection_counts.update(str(reason) for reason in raw_reasons if reason)
 
                     if diagnostics_by_asset:
                         ranked = sorted(
@@ -233,6 +250,10 @@ async def main() -> None:
             f"snapshots={snapshots} evaluations={evaluations} orders={orders}"
         )
         print("OUTCOME_ESTIMATE_SUMMARY " + str(outcome_tracker.summary()))
+        print("ASSET_EVALUATION_COUNTS " + str(dict(asset_evaluation_counts.most_common())))
+        print("ASSET_DIRECTIONAL_CANDIDATES " + str(dict(asset_signal_counts.most_common())))
+        print("REJECTION_REASON_COUNTS " + str(dict(rejection_counts.most_common())))
+        print("DECISION_STAGE_COUNTS " + str(dict(decision_stage_counts.most_common())))
         if snapshots == 0:
             raise RuntimeError("No Demo market snapshots were received")
     finally:
