@@ -6,6 +6,7 @@ import time
 from datetime import datetime, timezone
 
 from app.core.paper_trader import DemoPaperTrader
+from app.core.outcome_tracker import DemoOutcomeTracker
 from app.execution.executor import PocketOptionDemoExecutor
 from app.market.market_data import PocketOptionMarketData
 
@@ -77,6 +78,9 @@ async def main() -> None:
     evaluations = 0
     orders = 0
     next_evaluation_at = 0.0
+    outcome_tracker = DemoOutcomeTracker(
+        payout_rate=float(os.environ.get("POCKET_OPTION_PAYOUT_RATE", "0.92"))
+    )
 
     try:
         market = await connect_market()
@@ -98,6 +102,12 @@ async def main() -> None:
             try:
                 async for snapshot in market.stream(timeout=remaining):
                     trader.ingest(snapshot)
+                    for outcome in outcome_tracker.on_quote(
+                        snapshot.asset, snapshot.price
+                    ):
+                        print("TRADE_OUTCOME_ESTIMATE " + " ".join(
+                            f"{key}={value}" for key, value in outcome.items()
+                        ))
                     snapshots += 1
                     now = time.monotonic()
                     if snapshots < 21 or now < next_evaluation_at:
@@ -199,6 +209,14 @@ async def main() -> None:
                     )
                     if result.accepted:
                         orders += 1
+                        outcome_tracker.register(
+                            trade_id=result.trade_id or f"accepted-{orders}",
+                            asset=signal.asset,
+                            direction=signal.direction,
+                            amount=amount,
+                            entry_price=selected_price,
+                            expiration_seconds=expiration,
+                        )
 
             except RuntimeError as exc:
                 if time.monotonic() >= deadline:
@@ -214,6 +232,7 @@ async def main() -> None:
             "STRATEGY_TEST_COMPLETED "
             f"snapshots={snapshots} evaluations={evaluations} orders={orders}"
         )
+        print("OUTCOME_ESTIMATE_SUMMARY " + str(outcome_tracker.summary()))
         if snapshots == 0:
             raise RuntimeError("No Demo market snapshots were received")
     finally:
