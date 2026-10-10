@@ -112,9 +112,8 @@ class DemoOutcomeTracker:
             for key, value in (("asset", str(item["asset"])), ("direction", str(item["direction"]))):
                 group = by_asset[value] if key == "asset" else by_direction[value]
                 group["trades"] += 1
-                outcome = str(item["outcome_estimate"]).lower() + "s"
-                if outcome in group:
-                    group[outcome] += 1
+                outcome_key = {"WIN": "wins", "LOSS": "losses", "PUSH": "pushes"}[str(item["outcome_estimate"])]
+                group[outcome_key] += 1
                 group["estimated_net"] = round(float(group["estimated_net"]) + float(item["estimated_net"]), 8)
         return {
             "settled_estimates": len(self.results),
