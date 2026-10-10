@@ -194,7 +194,10 @@ class DemoPaperTrader:
         )
 
     async def open_trade(self, signal: Signal, price: float) -> TradeResult:
-        amount = self.amount_for_signal(signal)
+        # Respect the explicit stake configured for this Demo run.
+        # Adaptive sizing is available for separate experiments but must not
+        # silently override POCKET_OPTION_AMOUNT.
+        amount = self.amount
         request = TradeRequest(
             asset=signal.asset,
             direction=signal.direction,
