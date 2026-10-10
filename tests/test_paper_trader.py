@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from app.core.models import MarketSnapshot, Signal
 from app.core.paper_trader import DemoPaperTrader
+from app.core.outcome_tracker import DemoOutcomeTracker
 from app.execution.executor import DryRunExecutor
 
 
@@ -126,3 +127,63 @@ def test_paper_trader_allows_signal_after_previous_same_candle_trade():
     assert signal.direction == "CALL"
     assert diagnostics["EURUSD"]["entry_status"] == "READY"
     assert "same_candle_blocked" not in diagnostics["EURUSD"]
+
+
+class CapturingExecutor(DryRunExecutor):
+    def __init__(self):
+        self.requests = []
+
+    async def execute(self, request):
+        self.requests.append(request)
+        return await super().execute(request)
+
+
+def test_open_trade_respects_configured_fixed_stake():
+    executor = CapturingExecutor()
+    trader = DemoPaperTrader(executor=executor, amount=1.0)
+    signal = Signal("EURUSD", "CALL", 95.0, datetime.now(timezone.utc))
+
+    asyncio.run(trader.open_trade(signal, 1.1))
+
+    assert len(executor.requests) == 1
+    assert executor.requests[0].amount == 1.0
+
+
+def test_outcome_tracker_estimates_call_win_and_summary():
+    tracker = DemoOutcomeTracker(payout_rate=0.92)
+    tracker.register(
+        trade_id="demo-1", asset="EURUSD_otc", direction="CALL",
+        amount=1.0, entry_price=1.1, expiration_seconds=5, opened_at=10.0,
+    )
+
+    assert tracker.on_quote("GBPUSD_otc", 1.2, now=16.0) == []
+    outcomes = tracker.on_quote("EURUSD_otc", 1.1001, now=16.0)
+
+    assert outcomes[0]["outcome_estimate"] == "WIN"
+    assert outcomes[0]["estimated_net"] == 0.92
+    summary = tracker.summary()
+    assert summary["wins"] == 1
+    assert summary["losses"] == 0
+    assert summary["by_asset"]["EURUSD_otc"]["wins"] == 1
+    assert summary["source"] == "ESTIMATES_ONLY_NOT_BROKER_SETTLEMENTS"
+
+
+def test_outcome_tracker_estimates_put_loss_and_push_counts():
+    tracker = DemoOutcomeTracker(payout_rate=0.92)
+    tracker.register(
+        trade_id="demo-2", asset="GBPUSD_otc", direction="PUT",
+        amount=1.0, entry_price=1.2, expiration_seconds=5, opened_at=10.0,
+    )
+    tracker.on_quote("GBPUSD_otc", 1.21, now=15.0)
+
+    tracker.register(
+        trade_id="demo-3", asset="GBPUSD_otc", direction="CALL",
+        amount=1.0, entry_price=1.2, expiration_seconds=5, opened_at=20.0,
+    )
+    tracker.on_quote("GBPUSD_otc", 1.2, now=25.0)
+
+    summary = tracker.summary()
+    assert summary["losses"] == 1
+    assert summary["pushes"] == 1
+    assert summary["by_direction"]["PUT"]["losses"] == 1
+    assert summary["by_direction"]["CALL"]["pushes"] == 1
