@@ -194,6 +194,22 @@ async def main() -> None:
                         )
                         continue
 
+                    selected_diagnostics = diagnostics_by_asset.get(
+                        signal.asset, {}
+                    )
+                    print(
+                        "ASSET_SELECTED "
+                        f"asset={signal.asset} "
+                        f"direction={signal.direction} "
+                        f"candidate_rank={selected_diagnostics.get('candidate_rank', 'n/a')} "
+                        f"candidate_count={selected_diagnostics.get('candidate_count', 'n/a')} "
+                        f"signal_score={float(selected_diagnostics.get('signal_score', 0.0)):.2f} "
+                        f"buy_score={float(selected_diagnostics.get('buy_score', 0.0)):.2f} "
+                        f"sell_score={float(selected_diagnostics.get('sell_score', 0.0)):.2f} "
+                        f"prediction_confidence={float(selected_diagnostics.get('prediction_confidence', signal.confidence)):.2f} "
+                        f"prediction_change={float(selected_diagnostics.get('prediction_change', 0.0)):.6f}% "
+                        f"selection_reason={selected_diagnostics.get('selection_reason', 'n/a')}"
+                    )
                     print(
                         "DECISION "
                         f"{signal.direction} "
