@@ -81,6 +81,9 @@ async def main() -> None:
     next_evaluation_at = 0.0
     asset_evaluation_counts: Counter[str] = Counter()
     asset_signal_counts: Counter[str] = Counter()
+    direction_candidate_counts: Counter[str] = Counter()
+    selected_asset_counts: Counter[str] = Counter()
+    selected_direction_counts: Counter[str] = Counter()
     rejection_counts: Counter[str] = Counter()
     decision_stage_counts: Counter[str] = Counter()
     outcome_tracker = DemoOutcomeTracker(
@@ -128,6 +131,7 @@ async def main() -> None:
                         asset_evaluation_counts[name] += 1
                         if item.get("signal") in {"CALL", "PUT"}:
                             asset_signal_counts[name] += 1
+                            direction_candidate_counts[str(item["signal"])] += 1
                         stage = str(item.get("decision_stage", "unknown"))
                         decision_stage_counts[stage] += 1
                         raw_reasons = item.get("signal_rejection_reasons", [])
@@ -197,6 +201,8 @@ async def main() -> None:
                     selected_diagnostics = diagnostics_by_asset.get(
                         signal.asset, {}
                     )
+                    selected_asset_counts[signal.asset] += 1
+                    selected_direction_counts[signal.direction] += 1
                     print(
                         "ASSET_SELECTED "
                         f"asset={signal.asset} "
@@ -208,7 +214,13 @@ async def main() -> None:
                         f"sell_score={float(selected_diagnostics.get('sell_score', 0.0)):.2f} "
                         f"prediction_confidence={float(selected_diagnostics.get('prediction_confidence', signal.confidence)):.2f} "
                         f"prediction_change={float(selected_diagnostics.get('prediction_change', 0.0)):.6f}% "
-                        f"selection_reason={selected_diagnostics.get('selection_reason', 'n/a')}"
+                        f"selection_reason={selected_diagnostics.get('selection_reason', 'n/a')} "
+                        f"entry_status={selected_diagnostics.get('entry_status', 'n/a')} "
+                        f"market_state={selected_diagnostics.get('market_state', 'n/a')} "
+                        f"market_volatility={float(selected_diagnostics.get('market_volatility', 0.0)):.4f} "
+                        f"trend={float(selected_diagnostics.get('trend', 0.0)):.4f} "
+                        f"momentum={float(selected_diagnostics.get('momentum', 0.0)):.4f} "
+                        f"rsi={float(selected_diagnostics.get('rsi', 50.0)):.2f}"
                     )
                     print(
                         "DECISION "
@@ -268,6 +280,9 @@ async def main() -> None:
         print("OUTCOME_ESTIMATE_SUMMARY " + str(outcome_tracker.summary()))
         print("ASSET_EVALUATION_COUNTS " + str(dict(asset_evaluation_counts.most_common())))
         print("ASSET_DIRECTIONAL_CANDIDATES " + str(dict(asset_signal_counts.most_common())))
+        print("DIRECTION_CANDIDATE_COUNTS " + str(dict(direction_candidate_counts.most_common())))
+        print("SELECTED_ASSET_COUNTS " + str(dict(selected_asset_counts.most_common())))
+        print("SELECTED_DIRECTION_COUNTS " + str(dict(selected_direction_counts.most_common())))
         print("REJECTION_REASON_COUNTS " + str(dict(rejection_counts.most_common())))
         print("DECISION_STAGE_COUNTS " + str(dict(decision_stage_counts.most_common())))
         if snapshots == 0:
