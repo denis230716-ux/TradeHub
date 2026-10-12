@@ -112,6 +112,23 @@ def test_signal_generator_accepts_entry_with_predictor_direction():
     assert result.signal == "CALL"
 
 
+
+def test_signal_score_is_separate_from_predictor_confidence():
+    result = SignalGenerator().generate_signal(
+        "TEST",
+        {
+            "trend": 0.5,
+            "momentum": 0.5,
+            "rsi": 50,
+            "prediction_change": 0.2,
+            "prediction_confidence": 72,
+        },
+    )
+    assert result.signal == "CALL"
+    assert result.score == 27
+    assert result.confidence == 72
+
+
 def test_signal_generator_ignores_microscopic_predictor_noise():
     generator = SignalGenerator()
     result = generator.generate_signal(
