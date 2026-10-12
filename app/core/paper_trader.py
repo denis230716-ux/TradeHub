@@ -167,11 +167,26 @@ class DemoPaperTrader:
             asset_diagnostics["entry_status"] = "READY"
             candidates.append(signal)
 
-        selected = (
-            max(candidates, key=lambda signal: signal.confidence)
-            if candidates
-            else None
+        ranked_candidates = sorted(
+            candidates,
+            key=lambda signal: signal.confidence,
+            reverse=True,
         )
+        selected = ranked_candidates[0] if ranked_candidates else None
+        for rank, candidate in enumerate(ranked_candidates, start=1):
+            item = diagnostics.get(candidate.asset)
+            if item is not None:
+                item["candidate_rank"] = rank
+                item["candidate_count"] = len(ranked_candidates)
+                item["selection_confidence"] = float(candidate.confidence)
+                item["selection_direction"] = candidate.direction
+                item["selected"] = candidate.asset == selected.asset
+        if selected is not None:
+            selected_item = diagnostics.get(selected.asset)
+            if selected_item is not None:
+                selected_item["selection_reason"] = (
+                    "highest_prediction_confidence_among_ready_candidates"
+                )
         return selected, diagnostics
 
     def amount_for_signal(self, signal: Signal) -> float:
