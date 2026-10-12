@@ -176,7 +176,9 @@ class SignalGenerator:
                 reasons.append("near-threshold confirmed by trend/momentum/predictor")
 
         total = max(buy, sell)
-        confidence = min(100.0, total)
+        # Keep the heuristic score separate from predictor confidence.
+        # The score ranks signal strength; confidence comes from the predictor.
+        confidence = max(0.0, min(100.0, prediction_confidence))
         return SignalResult(
             symbol,
             signal,
