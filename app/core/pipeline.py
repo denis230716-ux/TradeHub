@@ -96,7 +96,10 @@ class TradeHubPipeline:
             "buy_score": generated.buy_score,
             "sell_score": generated.sell_score,
             "signal": generated.signal,
+            "signal_score": generated.score,
             "signal_confidence": generated.confidence,
+            "prediction_confidence": prediction.confidence,
+            "prediction_change": prediction_change,
             "signal_rejection_reasons": ",".join(
                 generated.rejection_reasons
             ),
