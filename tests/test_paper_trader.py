@@ -52,6 +52,24 @@ class AlwaysCallPipeline:
         )
 
 
+def test_paper_trader_records_selected_candidate_rank_and_reason():
+    trader = DemoPaperTrader(
+        pipeline=AlwaysCallPipeline(),
+        executor=DryRunExecutor(),
+        cooldown_seconds=0,
+    )
+    for i in range(21):
+        trader.ingest(candle_snapshot("EURUSD", 1.0 + i * 0.001, 1000.0 + i))
+    signal, diagnostics = trader.evaluate_with_diagnostics()
+    assert signal is not None
+    assert diagnostics["EURUSD"]["candidate_rank"] == 1
+    assert diagnostics["EURUSD"]["candidate_count"] == 1
+    assert diagnostics["EURUSD"]["selected"] is True
+    assert diagnostics["EURUSD"]["selection_reason"] == (
+        "highest_prediction_confidence_among_ready_candidates"
+    )
+
+
 def test_paper_trader_keeps_separate_history_per_asset():
     trader = DemoPaperTrader()
     trader.ingest(snapshot("EURUSD", 1.1))
