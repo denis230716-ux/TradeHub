@@ -80,6 +80,9 @@ async def main() -> None:
     orders = 0
     next_evaluation_at = 0.0
     asset_evaluation_counts: Counter[str] = Counter()
+    last_snapshot_received_at: dict[str, float] = {}
+    latest_snapshot_price: dict[str, float] = {}
+    freshness_report_every = 30
     asset_signal_counts: Counter[str] = Counter()
     direction_candidate_counts: Counter[str] = Counter()
     selected_asset_counts: Counter[str] = Counter()
@@ -110,6 +113,8 @@ async def main() -> None:
             try:
                 async for snapshot in market.stream(timeout=remaining):
                     trader.ingest(snapshot)
+                    last_snapshot_received_at[snapshot.asset] = time.monotonic()
+                    latest_snapshot_price[snapshot.asset] = float(snapshot.price)
                     for outcome in outcome_tracker.on_quote(
                         snapshot.asset, snapshot.price
                     ):
@@ -129,6 +134,15 @@ async def main() -> None:
                     for item in diagnostics_by_asset.values():
                         name = str(item.get("asset", "unknown"))
                         asset_evaluation_counts[name] += 1
+                        last_seen = last_snapshot_received_at.get(name)
+                        item["seconds_since_latest_snapshot"] = (
+                            round(now - last_seen, 2) if last_seen is not None else -1.0
+                        )
+                        item["latest_snapshot_price"] = latest_snapshot_price.get(name, 0.0)
+                        candle_times = trader._candle_timestamps.get(name)
+                        item["latest_candle_timestamp"] = (
+                            float(candle_times[-1]) if candle_times else 0.0
+                        )
                         if item.get("signal") in {"CALL", "PUT"}:
                             asset_signal_counts[name] += 1
                             direction_candidate_counts[str(item["signal"])] += 1
@@ -139,6 +153,25 @@ async def main() -> None:
                             raw_reasons = [part for part in raw_reasons.replace(",", "|").split("|") if part]
                         if isinstance(raw_reasons, (list, tuple, set)):
                             rejection_counts.update(str(reason) for reason in raw_reasons if reason)
+
+                    if evaluations % freshness_report_every == 0:
+                        freshness = sorted(
+                            (
+                                (asset_name, round(now - seen_at, 2), latest_snapshot_price.get(asset_name, 0.0),
+                                 float(trader._candle_timestamps[asset_name][-1]) if trader._candle_timestamps.get(asset_name) else 0.0,
+                                 len(trader.candle_history.get(asset_name, ())))
+                                for asset_name, seen_at in last_snapshot_received_at.items()
+                            ),
+                            key=lambda row: row[1],
+                            reverse=True,
+                        )
+                        stale = [row for row in freshness if row[1] >= 10.0]
+                        print(
+                            "DATA_FRESHNESS "
+                            f"evaluation={evaluations} subscribed_assets={len(last_snapshot_received_at)} "
+                            f"stale_assets_10s={len(stale)} "
+                            f"oldest_assets={[(a, age, price, candle_ts, candles) for a, age, price, candle_ts, candles in freshness[:8]]}"
+                        )
 
                     if diagnostics_by_asset:
                         ranked = sorted(
