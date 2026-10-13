@@ -252,3 +252,18 @@ def test_candidate_ranking_uses_composite_quality_not_confidence_alone():
     assert signal.asset == "HIGHER_SIGNAL_QUALITY"
     assert diagnostics["HIGHER_SIGNAL_QUALITY"]["candidate_rank"] == 1
     assert diagnostics["HIGHER_SIGNAL_QUALITY"]["selection_quality_score"] > diagnostics["HIGH_CONFIDENCE"]["selection_quality_score"]
+
+
+def test_outcome_tracker_uses_quote_closest_to_expiry():
+    tracker = DemoOutcomeTracker(payout_rate=0.92)
+    tracker.register(
+        trade_id="near-expiry", asset="EURUSD_otc", direction="CALL",
+        amount=1.0, entry_price=1.1, expiration_seconds=5, opened_at=10.0,
+    )
+    assert tracker.on_quote("EURUSD_otc", 1.1002, now=14.8) == []
+    outcomes = tracker.on_quote("EURUSD_otc", 1.0990, now=15.3)
+
+    assert outcomes[0]["sampled_expiry_price"] == 1.1002
+    assert outcomes[0]["quote_side"] == "before_expiry"
+    assert outcomes[0]["outcome_estimate"] == "WIN"
+    assert outcomes[0]["quote_age_seconds"] == 0.2
