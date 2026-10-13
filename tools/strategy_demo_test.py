@@ -82,6 +82,11 @@ async def main() -> None:
     asset_evaluation_counts: Counter[str] = Counter()
     last_snapshot_received_at: dict[str, float] = {}
     latest_snapshot_price: dict[str, float] = {}
+    latest_snapshot_timestamp: dict[str, float] = {}
+    snapshot_price_changes: Counter[str] = Counter()
+    snapshot_timestamp_advances: Counter[str] = Counter()
+    candle_timestamp_advances: Counter[str] = Counter()
+    last_candle_timestamp_seen: dict[str, float] = {}
     freshness_report_every = 30
     asset_signal_counts: Counter[str] = Counter()
     direction_candidate_counts: Counter[str] = Counter()
@@ -114,7 +119,24 @@ async def main() -> None:
                 async for snapshot in market.stream(timeout=remaining):
                     trader.ingest(snapshot)
                     last_snapshot_received_at[snapshot.asset] = time.monotonic()
-                    latest_snapshot_price[snapshot.asset] = float(snapshot.price)
+                    price = float(snapshot.price)
+                    timestamp = snapshot.timestamp.timestamp()
+                    if snapshot.asset in latest_snapshot_price and latest_snapshot_price[snapshot.asset] != price:
+                        snapshot_price_changes[snapshot.asset] += 1
+                    if snapshot.asset in latest_snapshot_timestamp and latest_snapshot_timestamp[snapshot.asset] != timestamp:
+                        snapshot_timestamp_advances[snapshot.asset] += 1
+                    latest_snapshot_price[snapshot.asset] = price
+                    latest_snapshot_timestamp[snapshot.asset] = timestamp
+                    candle = snapshot.features.get("candle")
+                    if isinstance(candle, dict) and candle.get("timestamp") is not None:
+                        try:
+                            candle_timestamp = float(candle["timestamp"])
+                            if last_candle_timestamp_seen.get(snapshot.asset) != candle_timestamp:
+                                if snapshot.asset in last_candle_timestamp_seen:
+                                    candle_timestamp_advances[snapshot.asset] += 1
+                                last_candle_timestamp_seen[snapshot.asset] = candle_timestamp
+                        except (TypeError, ValueError):
+                            pass
                     for outcome in outcome_tracker.on_quote(
                         snapshot.asset, snapshot.price
                     ):
@@ -158,19 +180,25 @@ async def main() -> None:
                         freshness = sorted(
                             (
                                 (asset_name, round(now - seen_at, 2), latest_snapshot_price.get(asset_name, 0.0),
+                                 latest_snapshot_timestamp.get(asset_name, 0.0),
                                  float(trader._candle_timestamps[asset_name][-1]) if trader._candle_timestamps.get(asset_name) else 0.0,
-                                 len(trader.candle_history.get(asset_name, ())))
+                                 len(trader.candle_history.get(asset_name, ())),
+                                 snapshot_price_changes[asset_name],
+                                 snapshot_timestamp_advances[asset_name],
+                                 candle_timestamp_advances[asset_name])
                                 for asset_name, seen_at in last_snapshot_received_at.items()
                             ),
                             key=lambda row: row[1],
                             reverse=True,
                         )
                         stale = [row for row in freshness if row[1] >= 10.0]
+                        stalled_candles = [row for row in freshness if row[6] > 0 and row[8] == 0]
                         print(
                             "DATA_FRESHNESS "
                             f"evaluation={evaluations} subscribed_assets={len(last_snapshot_received_at)} "
-                            f"stale_assets_10s={len(stale)} "
-                            f"oldest_assets={[(a, age, price, candle_ts, candles) for a, age, price, candle_ts, candles in freshness[:8]]}"
+                            f"stale_assets_10s={len(stale)} assets_price_changes_no_candle_advance={len(stalled_candles)} "
+                            f"assets=[(asset,arrival_age_s,price,snapshot_ts,candle_ts,candle_count,price_changes,snapshot_ts_advances,candle_ts_advances)] "
+                            f"oldest_assets={freshness[:8]}"
                         )
 
                     if diagnostics_by_asset:
