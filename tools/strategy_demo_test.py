@@ -346,6 +346,35 @@ async def main() -> None:
         print("SELECTED_DIRECTION_COUNTS " + str(dict(selected_direction_counts.most_common())))
         print("REJECTION_REASON_COUNTS " + str(dict(rejection_counts.most_common())))
         print("DECISION_STAGE_COUNTS " + str(dict(decision_stage_counts.most_common())))
+        # End-of-run per-asset data quality: distinguish quiet prices from missing
+        # updates and show whether candle history was sufficient for evaluation.
+        final_freshness = []
+        finished_at = time.monotonic()
+        for asset_name, last_seen in last_snapshot_received_at.items():
+            history_count = len(trader.candle_history.get(asset_name, ()))
+            price_count = snapshot_price_changes[asset_name]
+            timestamp_count = snapshot_timestamp_advances[asset_name]
+            candle_count = candle_timestamp_advances[asset_name]
+            final_freshness.append({
+                "asset": asset_name,
+                "arrival_age_s": round(finished_at - last_seen, 2),
+                "candles": history_count,
+                "ready_for_21_candles": history_count >= 21,
+                "price_changes": price_count,
+                "snapshot_timestamp_advances": timestamp_count,
+                "candle_timestamp_advances": candle_count,
+                "price_change_ratio": round(price_count / max(1, timestamp_count), 3),
+                "candle_progress_ratio": round(candle_count / max(1, timestamp_count), 3),
+            })
+        final_freshness.sort(key=lambda row: row["arrival_age_s"], reverse=True)
+        print("FINAL_DATA_QUALITY " + str({
+            "assets_seen": len(final_freshness),
+            "assets_with_21plus_candles": sum(row["ready_for_21_candles"] for row in final_freshness),
+            "assets_with_no_price_changes": sum(row["price_changes"] == 0 for row in final_freshness),
+            "assets_with_no_candle_progress": sum(row["candle_timestamp_advances"] == 0 for row in final_freshness),
+            "assets_stale_10s": sum(row["arrival_age_s"] >= 10 for row in final_freshness),
+            "oldest_assets": final_freshness[:12],
+        }))
         if snapshots == 0:
             raise RuntimeError("No Demo market snapshots were received")
     finally:
