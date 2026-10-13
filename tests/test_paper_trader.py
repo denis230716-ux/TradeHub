@@ -66,7 +66,7 @@ def test_paper_trader_records_selected_candidate_rank_and_reason():
     assert diagnostics["EURUSD"]["candidate_count"] == 1
     assert diagnostics["EURUSD"]["selected"] is True
     assert diagnostics["EURUSD"]["selection_reason"] == (
-        "highest_prediction_confidence_among_ready_candidates"
+        "highest_composite_signal_quality"
     )
 
 
@@ -205,3 +205,48 @@ def test_outcome_tracker_estimates_put_loss_and_push_counts():
     assert summary["pushes"] == 1
     assert summary["by_direction"]["PUT"]["losses"] == 1
     assert summary["by_direction"]["CALL"]["pushes"] == 1
+
+
+class RankedCandidatePipeline:
+    def __init__(self):
+        self.last_diagnostics = {}
+
+    def evaluate(self, asset, prices, candles=None):
+        if asset == "HIGH_CONFIDENCE":
+            self.last_diagnostics = {
+                "signal": "CALL", "signal_confidence": 90.0,
+                "buy_score": 25.0, "sell_score": 0.0,
+                "prediction_change": 0.005,
+                "decision_stage": "SIGNAL_READY",
+            }
+            confidence = 90.0
+        else:
+            self.last_diagnostics = {
+                "signal": "CALL", "signal_confidence": 75.0,
+                "buy_score": 40.0, "sell_score": 0.0,
+                "prediction_change": 0.04,
+                "decision_stage": "SIGNAL_READY",
+            }
+            confidence = 75.0
+        return Signal(
+            asset=asset, direction="CALL", confidence=confidence,
+            timestamp=datetime.now(timezone.utc), reason="ranking test",
+        )
+
+
+def test_candidate_ranking_uses_composite_quality_not_confidence_alone():
+    trader = DemoPaperTrader(
+        pipeline=RankedCandidatePipeline(),
+        executor=DryRunExecutor(),
+        cooldown_seconds=0,
+    )
+    for i in range(21):
+        trader.ingest(candle_snapshot("HIGH_CONFIDENCE", 1.0 + i * 0.001, 1000.0 + i))
+        trader.ingest(candle_snapshot("HIGHER_SIGNAL_QUALITY", 1.0 + i * 0.001, 1000.0 + i))
+
+    signal, diagnostics = trader.evaluate_with_diagnostics()
+
+    assert signal is not None
+    assert signal.asset == "HIGHER_SIGNAL_QUALITY"
+    assert diagnostics["HIGHER_SIGNAL_QUALITY"]["candidate_rank"] == 1
+    assert diagnostics["HIGHER_SIGNAL_QUALITY"]["selection_quality_score"] > diagnostics["HIGH_CONFIDENCE"]["selection_quality_score"]
