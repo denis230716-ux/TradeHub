@@ -184,6 +184,8 @@ def test_outcome_tracker_estimates_call_win_and_summary():
     assert summary["losses"] == 0
     assert summary["by_asset"]["EURUSD_otc"]["wins"] == 1
     assert summary["source"] == "ESTIMATES_ONLY_NOT_BROKER_SETTLEMENTS"
+    assert summary["break_even_win_rate_percent"] == 52.08
+    assert summary["assumed_payout_rate"] == 0.92
 
 
 def test_outcome_tracker_estimates_put_loss_and_push_counts():
