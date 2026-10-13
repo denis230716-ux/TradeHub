@@ -122,6 +122,10 @@ class DemoOutcomeTracker:
             "pushes": pushes,
             "win_rate_excluding_pushes_percent": round(100 * wins / (wins + losses), 2) if wins + losses else None,
             "estimated_net": round(sum(float(item["estimated_net"]) for item in self.results), 8),
+            "assumed_payout_rate": self.payout_rate,
+            "break_even_win_rate_percent": round(
+                100.0 / (1.0 + self.payout_rate), 2
+            ),
             "pending": len(self.pending),
             "by_asset": dict(by_asset),
             "by_direction": dict(by_direction),
