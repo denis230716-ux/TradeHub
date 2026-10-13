@@ -167,9 +167,30 @@ class DemoPaperTrader:
             asset_diagnostics["entry_status"] = "READY"
             candidates.append(signal)
 
+        def selection_quality(signal: Signal) -> float:
+            item = diagnostics.get(signal.asset, {})
+            confidence = max(0.0, min(100.0, float(signal.confidence))) / 100.0
+            score = max(
+                float(item.get("buy_score", 0.0)),
+                float(item.get("sell_score", 0.0)),
+                float(item.get("signal_score", 0.0)),
+            )
+            score_component = max(0.0, min(1.0, score / 45.0))
+            prediction_move = abs(float(item.get("prediction_change", 0.0)))
+            move_component = max(0.0, min(1.0, prediction_move / 0.05))
+            # This ranks already-approved candidates; it does not claim that
+            # predictor confidence is a calibrated probability of winning.
+            quality = 100.0 * (
+                0.50 * confidence
+                + 0.30 * score_component
+                + 0.20 * move_component
+            )
+            item["selection_quality_score"] = round(quality, 2)
+            return quality
+
         ranked_candidates = sorted(
             candidates,
-            key=lambda signal: signal.confidence,
+            key=selection_quality,
             reverse=True,
         )
         selected = ranked_candidates[0] if ranked_candidates else None
@@ -185,7 +206,7 @@ class DemoPaperTrader:
             selected_item = diagnostics.get(selected.asset)
             if selected_item is not None:
                 selected_item["selection_reason"] = (
-                    "highest_prediction_confidence_among_ready_candidates"
+                    "highest_composite_signal_quality"
                 )
         return selected, diagnostics
 
