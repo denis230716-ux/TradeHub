@@ -25,7 +25,7 @@ class SignalGenerator:
         self.min_buy_score = float(config.get("min_buy_score", 30))
         self.min_buy_difference = float(config.get("min_buy_difference", 10))
         self.min_sell_score = float(config.get("min_sell_score", 30))
-        self.near_threshold_score = float(config.get("near_threshold_score", 23))
+        self.near_threshold_score = float(config.get("near_threshold_score", 20))
         self.near_threshold_difference = float(
             config.get("near_threshold_difference", 4)
         )
@@ -96,10 +96,9 @@ class SignalGenerator:
             and difference <= -self.min_buy_difference
         )
 
-        # Scores in the 25-29 range were common in test #13. They are not
-        # promoted to trades by score alone: a near-threshold signal must
-        # agree with the market direction and have an independent predictor
-        # confidence confirmation.
+        # Lower the near-threshold score modestly to avoid almost no entries.
+        # Near-threshold entries still require trend, momentum, predictor
+        # confidence and direction agreement; this is not a score-only entry.
         near_call = (
             buy >= self.near_threshold_score
             and difference >= self.near_threshold_difference
