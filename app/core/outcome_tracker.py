@@ -14,6 +14,8 @@ class PendingOutcome:
     entry_price: float
     expiration_seconds: int
     opened_at: float
+    last_pre_expiry_price: float | None = None
+    last_pre_expiry_at: float | None = None
 
 
 class DemoOutcomeTracker:
@@ -67,16 +69,35 @@ class DemoOutcomeTracker:
         settled: list[dict[str, object]] = []
         still_pending: list[PendingOutcome] = []
         for trade in self.pending:
-            if trade.asset != asset or current_time < trade.opened_at + trade.expiration_seconds:
+            if trade.asset != asset:
                 still_pending.append(trade)
                 continue
-            if price == trade.entry_price:
+            expiry_at = trade.opened_at + trade.expiration_seconds
+            if current_time < expiry_at:
+                trade.last_pre_expiry_price = float(price)
+                trade.last_pre_expiry_at = current_time
+                still_pending.append(trade)
+                continue
+
+            # Use the observed quote closest in time to expiry, rather than
+            # always using the first quote after expiry. This remains an
+            # estimate and cannot replace the broker's settlement record.
+            expiry_price = float(price)
+            quote_age = current_time - expiry_at
+            quote_side = "after_expiry"
+            if trade.last_pre_expiry_at is not None:
+                before_age = expiry_at - trade.last_pre_expiry_at
+                if before_age <= quote_age:
+                    expiry_price = float(trade.last_pre_expiry_price)
+                    quote_age = before_age
+                    quote_side = "before_expiry"
+            if expiry_price == trade.entry_price:
                 outcome, net = "PUSH", 0.0
             else:
                 won = (
-                    price > trade.entry_price
+                    expiry_price > trade.entry_price
                     if trade.direction == "CALL"
-                    else price < trade.entry_price
+                    else expiry_price < trade.entry_price
                 )
                 outcome = "WIN" if won else "LOSS"
                 net = trade.amount * self.payout_rate if won else -trade.amount
@@ -86,7 +107,9 @@ class DemoOutcomeTracker:
                 "direction": trade.direction,
                 "amount": trade.amount,
                 "entry_price": trade.entry_price,
-                "sampled_expiry_price": float(price),
+                "sampled_expiry_price": expiry_price,
+                "quote_side": quote_side,
+                "quote_age_seconds": round(quote_age, 4),
                 "expiration_seconds": trade.expiration_seconds,
                 "outcome_estimate": outcome,
                 "estimated_net": round(net, 8),
