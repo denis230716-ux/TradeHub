@@ -2,9 +2,6 @@ name: TradeHub Strategy Demo Test
 
 on:
   workflow_dispatch:
-  schedule:
-    # Repeat the 10-minute Demo test every 15 minutes; GitHub may delay scheduled runs.
-    - cron: "*/15 * * * *"
 
 permissions:
   contents: read
