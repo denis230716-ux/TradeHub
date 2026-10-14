@@ -67,6 +67,8 @@ class DemoPaperTrader:
         self.sequence = 0
         self.cooldown_seconds = max(0, int(cooldown_seconds))
         self._cooldown_until: dict[str, float] = {}
+        # Avoid stacking correlated entries on repeated ticks of the same candle.
+        self._last_traded_candle: dict[str, float] = {}
         self.external_synchronizer = external_synchronizer
 
     def ingest(self, snapshot: MarketSnapshot) -> None:
@@ -145,9 +147,13 @@ class DemoPaperTrader:
                 continue
 
             if self._candle_timestamps[signal.asset]:
-                asset_diagnostics["signal_candle_timestamp"] = float(
-                    self._candle_timestamps[signal.asset][-1]
-                )
+                candle_timestamp = float(self._candle_timestamps[signal.asset][-1])
+                asset_diagnostics["signal_candle_timestamp"] = candle_timestamp
+                last_traded_candle = self._last_traded_candle.get(signal.asset)
+                if last_traded_candle is not None and candle_timestamp <= last_traded_candle:
+                    asset_diagnostics["entry_status"] = "SAME_CANDLE_BLOCKED"
+                    asset_diagnostics["same_candle_blocked"] = True
+                    continue
 
             if self.external_synchronizer is not None:
                 match = self.external_synchronizer.compare(
@@ -248,6 +254,9 @@ class DemoPaperTrader:
             self._cooldown_until[signal.asset] = (
                 monotonic() + self.cooldown_seconds
             )
+            candle_timestamps = self._candle_timestamps.get(signal.asset)
+            if candle_timestamps:
+                self._last_traded_candle[signal.asset] = float(candle_timestamps[-1])
 
         if result.accepted and isinstance(self.executor, DryRunExecutor):
             self.sequence += 1
