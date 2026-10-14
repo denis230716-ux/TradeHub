@@ -116,7 +116,7 @@ def test_paper_trader_adapts_stake_to_signal_confidence():
     assert trader.amount_for_signal(max_signal) <= 921.15 * 0.01
 
 
-def test_paper_trader_allows_signal_after_previous_same_candle_trade():
+def test_paper_trader_blocks_duplicate_signal_on_same_candle():
     trader = DemoPaperTrader(
         pipeline=AlwaysCallPipeline(),
         executor=DryRunExecutor(),
@@ -141,10 +141,15 @@ def test_paper_trader_allows_signal_after_previous_same_candle_trade():
 
     signal, diagnostics = trader.evaluate_with_diagnostics()
 
+    assert signal is None
+    assert diagnostics["EURUSD"]["entry_status"] == "SAME_CANDLE_BLOCKED"
+    assert diagnostics["EURUSD"]["same_candle_blocked"] is True
+
+    # A new candle may produce a new entry.
+    trader.ingest(candle_snapshot("EURUSD", 1.03, 1021.0))
+    signal, diagnostics = trader.evaluate_with_diagnostics()
     assert signal is not None
-    assert signal.direction == "CALL"
     assert diagnostics["EURUSD"]["entry_status"] == "READY"
-    assert "same_candle_blocked" not in diagnostics["EURUSD"]
 
 
 class CapturingExecutor(DryRunExecutor):
