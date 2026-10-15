@@ -30,7 +30,7 @@ class SignalGenerator:
             config.get("near_threshold_difference", 4)
         )
         self.min_prediction_confidence = float(
-            config.get("min_prediction_confidence", 55)
+            config.get("min_prediction_confidence", 60)
         )
         self.min_prediction_move_percent = float(
             config.get("min_prediction_move_percent", 0.01)
